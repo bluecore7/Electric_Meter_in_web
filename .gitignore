@@ -1,0 +1,63 @@
+# --------------------
+# OS & Editor
+# --------------------
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# --------------------
+# Python virtual env
+# --------------------
+venv/
+__pycache__/
+*.pyc
+
+# --------------------
+# Logs
+# --------------------
+*.log
+
+# --------------------
+# Firebase local cache
+# --------------------
+.firebase/
+
+serviceAccountKey.json
+.firebase/
+.firebaserc
+database.rules.json
+main_1.txt
+runtime.txt
+app_1.txt
+index_1.txt
+style_1.txt
+
+# -------- Python --------
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# -------- Firebase / Secrets --------
+backend/serviceAccountKey.json
+backend/key.txt
+
+# -------- Node / Frontend --------
+node_modules/
+
+# -------- Firebase Hosting --------
+.firebase/
+.firebase-debug.log
+
+# -------- OS / Editor --------
+.DS_Store
+Thumbs.db
+.vscode/
+
+# -------- Logs --------
+*.log
+Frontend/firebase.js
+
+energyflow-esp32-902d2e202211.json
