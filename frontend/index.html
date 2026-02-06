@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EnergyFlow | Dashboard</title>
+    <title>EnergyFlow | Smart Meter</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="style.css" />
 </head>
@@ -21,11 +21,11 @@
 
     <div id="authDiv" class="container">
         <div class="card auth-card">
-            <h3>Login / Signup</h3>
-            <p style="font-size: 0.9rem; opacity: 0.7; margin-bottom: 20px;">
-                Access your real-time energy dashboard.
+            <h3>Welcome Back</h3>
+            <p style="opacity:0.6; font-size: 14px; margin-bottom: 20px;">
+                Login to monitor your energy usage.
             </p>
-            <input id="email" type="email" placeholder="Email" />
+            <input id="email" type="email" placeholder="Email Address" />
             <input id="password" type="password" placeholder="Password" />
             <div class="auth-actions">
                 <button onclick="signup()">Sign Up</button>
@@ -37,12 +37,12 @@
     <div id="dashboardDiv" class="container" style="display:none">
 
         <div class="card">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
                 <h3 style="margin:0">Registered Devices</h3>
-                <span style="font-size: 11px; opacity: 0.6;">Auto-refreshing</span>
+                <span style="font-size: 11px; opacity: 0.5;">Live Status</span>
             </div>
             <div id="deviceList">
-                <p style="opacity:0.5; font-size: 12px;">Connecting...</p>
+                <p style="opacity:0.5; font-size:12px">Checking connection...</p>
             </div>
         </div>
 
@@ -63,7 +63,7 @@
 
         <div class="grid-2">
             <div class="card">
-                <h3>Current Consumption</h3>
+                <h3>Current Bill</h3>
 
                 <div class="stats-row">
                     <div class="stat-item">
@@ -71,13 +71,13 @@
                         <span class="stat-value"><span id="totalUnits">0.00</span> kWh</span>
                     </div>
                     <div class="stat-item">
-                        <span class="stat-label">Since Last Bill</span>
+                        <span class="stat-label">Used This Month</span>
                         <span class="stat-value highlight"><span id="usedUnits">0.00</span> kWh</span>
                     </div>
                 </div>
 
                 <div class="amount-box">₹ <span id="amount">0.00</span></div>
-                <button id="takeBtn" onclick="takeReading()" style="width: 100%;">Take New Reading</button>
+                <button id="takeBtn" onclick="takeReading()">Take New Reading</button>
             </div>
 
             <div class="card">
@@ -94,9 +94,9 @@
     <div id="deviceModal" class="modal">
         <div class="modal-content card">
             <h3>Register New Device</h3>
-            <p style="font-size: 12px; margin-bottom: 15px; opacity: 0.7;">Enter Device ID (e.g. ESP001)</p>
+            <p style="font-size:12px; margin-bottom:15px; opacity:0.7">Enter the ID found on your ESP32.</p>
             <input id="deviceId" placeholder="e.g. ESP001" />
-            <div style="margin-top:20px; display: flex; gap: 10px;">
+            <div style="margin-top:20px; display:flex; gap:10px">
                 <button onclick="registerDevice()" style="flex:1">Register</button>
                 <button class="secondary" onclick="closeDeviceModal()">Cancel</button>
             </div>
