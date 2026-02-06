@@ -142,3 +142,19 @@ def take_reading(uid=Depends(verify_user)):
 def billing_history(uid=Depends(verify_user)):
     db = get_db()
     return db.child("users").child(uid).child("bills").get()
+
+@app.get("/devices")
+def list_devices(uid=Depends(verify_user)):
+    db = get_db()
+    user = db.child("users").child(uid).get()
+
+    if not user or "device_id" not in user:
+        return []
+
+    device_id = user["device_id"]
+    live = db.child("devices").child(device_id).child("live").get() or {}
+
+    return [{
+        "device_id": device_id,
+        "last_seen": live.get("timestamp", 0)
+    }]
