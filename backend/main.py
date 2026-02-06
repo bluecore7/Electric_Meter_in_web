@@ -4,8 +4,8 @@ from firebase import get_db
 from auth import verify_user
 from models import DevicePayload
 
-# ---------------- BILL CALCULATION ----------------
-def calculate_bill(units: float) -> float:
+# ---------------- BILL CALCULATION LOGIC ----------------
+def calculate_bill(units):
     cost = 0.0
     if units <= 100:
         return 0.0
@@ -40,11 +40,29 @@ def register_device(device_id: str, uid=Depends(verify_user)):
     db.child("devices").child(device_id).child("owner").set(uid)
     return {"message": "Device registered"}
 
-# ---------------- ESP LIVE DATA ----------------
+# ---------------- LIST DEVICES ----------------
+@app.get("/devices")
+def list_devices(uid=Depends(verify_user)):
+    db = get_db()
+    user_data = db.child("users").child(uid).get()
+    
+    if not user_data or "device_id" not in user_data:
+        return []
+
+    device_id = user_data["device_id"]
+    live_data = db.child("devices").child(device_id).child("live").get()
+    
+    last_seen = 0
+    if live_data and "timestamp" in live_data:
+        last_seen = live_data["timestamp"]
+
+    return [{"device_id": device_id, "last_seen": last_seen}]
+
+# ---------------- ESP32 INPUT ----------------
 @app.post("/device/live")
 def device_live(data: DevicePayload):
     db = get_db()
-    db.child("devices").child(data.device_id).child("live").set({
+    db.child("devices").child(data.device_id).child("live").update({
         "voltage": data.voltage,
         "power": data.power,
         "energy_kWh": data.energy_kWh,
@@ -52,65 +70,74 @@ def device_live(data: DevicePayload):
     })
     return {"status": "ok"}
 
-# ---------------- GET LIVE DATA ----------------
+# ---------------- LIVE DATA + BACKEND CALCULATION ----------------
 @app.get("/live")
 def get_live(uid=Depends(verify_user)):
     db = get_db()
-
+    
+    # 1. Get User's Device
     user = db.child("users").child(uid).get()
     if not user or "device_id" not in user:
-        raise HTTPException(400, "No device registered")
+        return {"error": "No device registered"}
 
     device_id = user["device_id"]
+    
+    # 2. Get Live Data
     live = db.child("devices").child(device_id).child("live").get()
-
     if not live:
-        return {
-            "voltage": 0,
-            "power": 0,
-            "energy_kWh": 0,
-            "units_used": 0,
-            "last_bill_amount": 0
-        }
+        return {"voltage": 0, "power": 0, "energy_kWh": 0, "units_used": 0, "current_bill": 0}
 
-    bills = db.child("users").child(uid).child("bills").get() or {}
-
-    last_energy = 0
-    last_amount = 0
+    # 3. Get Last Bill (Baseline)
+    bills = db.child("users").child(uid).child("bills").get()
+    current_kwh = live.get("energy_kWh", 0)
+    last_bill_kwh = 0
 
     if bills:
-        last_bill = sorted(bills.values(), key=lambda x: x["to_ts"])[-1]
-        last_energy = last_bill["energy_end"]
-        last_amount = last_bill["amount"]
+        bill_list = sorted(bills.values(), key=lambda x: x.get('to_ts', 0))
+        last_bill = bill_list[-1]
+        last_bill_kwh = last_bill.get("energy_end", 0)
 
-    units_used = round(live["energy_kWh"] - last_energy, 4)
+    # 4. Calculate Units Used
+    units_used = max(0, round(current_kwh - last_bill_kwh, 4))
+    
+    # 5. Calculate Cost (BACKEND LOGIC)
+    current_bill_amount = calculate_bill(units_used)
 
+    # 6. Store calculated values in Firebase (So they persist)
+    db.child("devices").child(device_id).child("live").update({
+        "units_used": units_used,
+        "current_bill": current_bill_amount
+    })
+
+    # 7. Return everything to Frontend
     return {
         **live,
-        "units_used": max(units_used, 0),
-        "last_bill_amount": last_amount
+        "units_used": units_used,
+        "current_bill": current_bill_amount
     }
 
-# ---------------- TAKE BILLING READING ----------------
+# ---------------- BILLING HISTORY ----------------
 @app.post("/billing/take-reading")
 def take_reading(uid=Depends(verify_user)):
     db = get_db()
-
     user = db.child("users").child(uid).get()
     if not user or "device_id" not in user:
-        raise HTTPException(400, "No device found")
-
+         raise HTTPException(status_code=400, detail="No device found")
+         
     device_id = user["device_id"]
     live = db.child("devices").child(device_id).child("live").get()
+    
     if not live:
-        raise HTTPException(400, "No live data")
+        return {"error": "No live data"}
 
-    energy_now = live["energy_kWh"]
-    ts_now = live["timestamp"]
-
+    # Use the live values we already calculated
+    energy_now = live.get("energy_kWh", 0)
+    ts_now = live.get("timestamp", 0)
+    
     bills_ref = db.child("users").child(uid).child("bills")
     bills = bills_ref.get() or {}
 
+    # First Bill
     if not bills:
         bills_ref.push({
             "energy_start": energy_now,
@@ -120,14 +147,18 @@ def take_reading(uid=Depends(verify_user)):
             "units": 0,
             "amount": 0
         })
-        return {"amount": 0}
+        return {"message": "Baseline reading recorded", "amount": 0}
 
-    last_bill = sorted(bills.values(), key=lambda x: x["to_ts"])[-1]
-    units = round(energy_now - last_bill["energy_end"], 4)
+    # Subsequent Bills
+    bill_list = sorted(bills.values(), key=lambda x: x.get('to_ts', 0))
+    last_bill = bill_list[-1]
+    energy_prev = last_bill["energy_end"]
+
+    units = round(energy_now - energy_prev, 4)
     amount = calculate_bill(units)
 
     bills_ref.push({
-        "energy_start": last_bill["energy_end"],
+        "energy_start": energy_prev,
         "energy_end": energy_now,
         "from_ts": last_bill["to_ts"],
         "to_ts": ts_now,
@@ -137,24 +168,7 @@ def take_reading(uid=Depends(verify_user)):
 
     return {"units": units, "amount": amount}
 
-# ---------------- BILL HISTORY ----------------
 @app.get("/billing/history")
 def billing_history(uid=Depends(verify_user)):
     db = get_db()
     return db.child("users").child(uid).child("bills").get()
-
-@app.get("/devices")
-def list_devices(uid=Depends(verify_user)):
-    db = get_db()
-    user = db.child("users").child(uid).get()
-
-    if not user or "device_id" not in user:
-        return []
-
-    device_id = user["device_id"]
-    live = db.child("devices").child(device_id).child("live").get() or {}
-
-    return [{
-        "device_id": device_id,
-        "last_seen": live.get("timestamp", 0)
-    }]
