@@ -6,8 +6,7 @@ import {
   signOut,
 } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js";
 
-// ⚠️ REPLACE WITH YOUR RENDER URL
-const BACKEND = "https://energyflow-esp32.onrender.com";
+const BACKEND = "https://electric-meter-in-web.onrender.com";
 
 /* ---------- DOM ELEMENTS ---------- */
 const authDiv = document.getElementById("authDiv");
@@ -15,6 +14,8 @@ const dashboardDiv = document.getElementById("dashboardDiv");
 const amountEl = document.getElementById("amount");
 const takeBtn = document.getElementById("takeBtn");
 const logoutBtn = document.getElementById("logoutBtn");
+
+// NEW: Elements for unit readings
 const totalUnitsEl = document.getElementById("totalUnits");
 const usedUnitsEl = document.getElementById("usedUnits");
 
@@ -71,7 +72,7 @@ async function loadDevices() {
     const now = Math.floor(Date.now() / 1000);
 
     if (devices.length === 0) {
-      list.innerHTML = `<p style="opacity:0.5; font-size:12px">No devices found.</p>`;
+      list.innerHTML = `<p style="opacity:0.5; font-size:12px">No devices. Register one!</p>`;
       return;
     }
 
@@ -132,14 +133,35 @@ const chartConfig = (label, data, color, bg) => ({
   },
 });
 
+const vCtx = document.getElementById("voltageChart").getContext("2d");
+const pCtx = document.getElementById("powerChart").getContext("2d");
 const voltageChart = new Chart(
-  document.getElementById("voltageChart"),
+  vCtx,
   chartConfig("Voltage", voltageData, "#38bdf8", "rgba(56, 189, 248, 0.1)"),
 );
 const powerChart = new Chart(
-  document.getElementById("powerChart"),
+  pCtx,
   chartConfig("Power", powerData, "#6366f1", "rgba(99, 102, 241, 0.1)"),
 );
+
+// ---------------------------------------------------------
+// ⚡ NEW: CLIENT-SIDE BILL CALCULATOR
+// ---------------------------------------------------------
+function calculateBill(units) {
+  if (units <= 100) return 0;
+  let cost = 0;
+
+  // Slab 1: 101-200 units = ₹2.25/unit
+  if (units > 100) cost += Math.min(units - 100, 100) * 2.25;
+
+  // Slab 2: 201-500 units = ₹4.50/unit
+  if (units > 200) cost += Math.min(units - 200, 300) * 4.5;
+
+  // Slab 3: >500 units = ₹6.60/unit
+  if (units > 500) cost += (units - 500) * 6.6;
+
+  return cost;
+}
 
 async function fetchLive() {
   if (!auth.currentUser) return;
@@ -165,13 +187,16 @@ async function fetchLive() {
     voltageChart.update();
     powerChart.update();
 
-    // 2. UPDATE TEXT (DATA COMES FROM BACKEND NOW)
+    // 2. UPDATE TEXT READINGS + LIVE BILL
     if (d.energy_kWh !== undefined) {
       totalUnitsEl.innerText = d.energy_kWh.toFixed(2);
-      usedUnitsEl.innerText = (d.units_used || 0).toFixed(2);
 
-      // ✅ SIMPLIFIED: Just read the backend value
-      amountEl.innerText = (d.current_bill || 0).toFixed(2);
+      const used = d.units_used || 0;
+      usedUnitsEl.innerText = used.toFixed(2);
+
+      // ⚡ CALCULATE BILL LIVE AND UPDATE DOM
+      const currentCost = calculateBill(used);
+      amountEl.innerText = currentCost.toFixed(2);
     }
   } catch (e) {
     /* silent fail */
@@ -193,7 +218,10 @@ window.takeReading = async () => {
   });
   const data = await res.json();
 
+  // Update amount but calculateBill() inside fetchLive will keep overwriting it,
+  // which is fine because they should match.
   amountEl.innerText = (data.amount || 0).toFixed(2);
+
   await loadBillingHistory();
   takeBtn.innerText = "Take New Reading";
   takeBtn.disabled = false;
@@ -222,33 +250,50 @@ function renderCalendar() {
     year: "numeric",
   });
 
+  // Empty slots for previous month days
   for (let i = 0; i < firstDay; i++)
     grid.innerHTML += `<div class="calendar-day" style="opacity:0"></div>`;
 
+  // Draw actual days
   for (let d = 1; d <= daysInMonth; d++) {
     const dateStr = new Date(curY, curM, d).toDateString();
+
+    // Find all bills for this specific day
     const dayBills = billingHistory.filter(
       (b) => new Date(b.to_ts * 1000).toDateString() === dateStr,
     );
+
+    // Calculate total cost for the day
     const dayTotal = dayBills.reduce((sum, b) => sum + (b.amount || 0), 0);
     const hasReading = dayBills.length > 0;
 
-    let style = "";
-    let content = "";
+    // DEBUG: Print to console if we find a bill so you can verify the date
     if (hasReading) {
-      style =
+      console.log(`Found reading for ${dateStr}: ₹${dayTotal}`);
+    }
+
+    // STYLE LOGIC:
+    // 1. If we have a reading (even if ₹0), show a light green background.
+    // 2. If the amount is > 0, show the price text.
+    let cellStyle = "";
+    let content = "";
+
+    if (hasReading) {
+      cellStyle =
         "background:rgba(34,197,94,0.1); border:1px solid rgba(34,197,94,0.4);";
-      content =
-        dayTotal > 0
-          ? `<div class="calendar-amount">₹${dayTotal.toFixed(0)}</div>`
-          : `<div class="calendar-amount" style="opacity:0.7">✓</div>`;
+      if (dayTotal > 0) {
+        content = `<div class="calendar-amount">₹${dayTotal.toFixed(0)}</div>`;
+      } else {
+        // Show a small checkmark or text for ₹0 readings (Baseline)
+        content = `<div class="calendar-amount" style="opacity:0.7">✓</div>`;
+      }
     }
 
     grid.innerHTML += `
-      <div class="calendar-day" style="${style}">
-        <span>${d}</span>
-        ${content}
-      </div>`;
+        <div class="calendar-day" style="${cellStyle}">
+          <span>${d}</span>
+          ${content}
+        </div>`;
   }
 }
 
@@ -268,6 +313,7 @@ window.nextMonth = () => {
   }
   renderCalendar();
 };
+
 window.openDeviceModal = () =>
   (document.getElementById("deviceModal").style.display = "flex");
 window.closeDeviceModal = () =>

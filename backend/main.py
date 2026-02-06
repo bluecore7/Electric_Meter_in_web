@@ -4,7 +4,7 @@ from firebase import get_db
 from auth import verify_user
 from models import DevicePayload
 
-# ---------------- BILL CALCULATION LOGIC ----------------
+# ---------------- BILL CALCULATION ----------------
 def calculate_bill(units):
     cost = 0.0
     if units <= 100:
@@ -40,7 +40,7 @@ def register_device(device_id: str, uid=Depends(verify_user)):
     db.child("devices").child(device_id).child("owner").set(uid)
     return {"message": "Device registered"}
 
-# ---------------- LIST DEVICES ----------------
+# ---------------- DEVICE STATUS ----------------
 @app.get("/devices")
 def list_devices(uid=Depends(verify_user)):
     db = get_db()
@@ -58,11 +58,11 @@ def list_devices(uid=Depends(verify_user)):
 
     return [{"device_id": device_id, "last_seen": last_seen}]
 
-# ---------------- ESP32 INPUT ----------------
+# ---------------- LIVE DATA INPUT (ESP32) ----------------
 @app.post("/device/live")
 def device_live(data: DevicePayload):
     db = get_db()
-    db.child("devices").child(data.device_id).child("live").update({
+    db.child("devices").child(data.device_id).child("live").set({
         "voltage": data.voltage,
         "power": data.power,
         "energy_kWh": data.energy_kWh,
@@ -70,12 +70,12 @@ def device_live(data: DevicePayload):
     })
     return {"status": "ok"}
 
-# ---------------- LIVE DATA + BACKEND CALCULATION ----------------
+# ---------------- GET LIVE DATA + UNIT CALCULATION ----------------
 @app.get("/live")
 def get_live(uid=Depends(verify_user)):
     db = get_db()
     
-    # 1. Get User's Device
+    # 1. Get Device
     user = db.child("users").child(uid).get()
     if not user or "device_id" not in user:
         return {"error": "No device registered"}
@@ -85,41 +85,36 @@ def get_live(uid=Depends(verify_user)):
     # 2. Get Live Data
     live = db.child("devices").child(device_id).child("live").get()
     if not live:
-        return {"voltage": 0, "power": 0, "energy_kWh": 0, "units_used": 0, "current_bill": 0}
+        return {"voltage": 0, "power": 0, "energy_kWh": 0, "units_used": 0}
 
-    # 3. Get Last Bill (Baseline)
+    # 3. Get Last Bill to calculate usage difference
     bills = db.child("users").child(uid).child("bills").get()
+    
     current_kwh = live.get("energy_kWh", 0)
     last_bill_kwh = 0
 
+    # If user has bill history, find the end reading of the last bill
     if bills:
+        # Sort bills by timestamp to ensure we get the latest
+        # (Firebase returns dict, so we sort values)
         bill_list = sorted(bills.values(), key=lambda x: x.get('to_ts', 0))
         last_bill = bill_list[-1]
         last_bill_kwh = last_bill.get("energy_end", 0)
 
-    # 4. Calculate Units Used
+    # 4. Calculate usage since last bill
     units_used = max(0, round(current_kwh - last_bill_kwh, 4))
-    
-    # 5. Calculate Cost (BACKEND LOGIC)
-    current_bill_amount = calculate_bill(units_used)
 
-    # 6. Store calculated values in Firebase (So they persist)
-    db.child("devices").child(device_id).child("live").update({
-        "units_used": units_used,
-        "current_bill": current_bill_amount
-    })
-
-    # 7. Return everything to Frontend
+    # Return everything
     return {
         **live,
-        "units_used": units_used,
-        "current_bill": current_bill_amount
+        "units_used": units_used
     }
 
-# ---------------- BILLING HISTORY ----------------
+# ---------------- BILLING ACTIONS ----------------
 @app.post("/billing/take-reading")
 def take_reading(uid=Depends(verify_user)):
     db = get_db()
+    
     user = db.child("users").child(uid).get()
     if not user or "device_id" not in user:
          raise HTTPException(status_code=400, detail="No device found")
@@ -130,14 +125,12 @@ def take_reading(uid=Depends(verify_user)):
     if not live:
         return {"error": "No live data"}
 
-    # Use the live values we already calculated
     energy_now = live.get("energy_kWh", 0)
     ts_now = live.get("timestamp", 0)
-    
+
     bills_ref = db.child("users").child(uid).child("bills")
     bills = bills_ref.get() or {}
 
-    # First Bill
     if not bills:
         bills_ref.push({
             "energy_start": energy_now,
@@ -147,9 +140,8 @@ def take_reading(uid=Depends(verify_user)):
             "units": 0,
             "amount": 0
         })
-        return {"message": "Baseline reading recorded", "amount": 0}
+        return {"message": "First reading recorded", "amount": 0}
 
-    # Subsequent Bills
     bill_list = sorted(bills.values(), key=lambda x: x.get('to_ts', 0))
     last_bill = bill_list[-1]
     energy_prev = last_bill["energy_end"]
