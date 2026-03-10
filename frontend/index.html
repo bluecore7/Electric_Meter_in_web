@@ -3,11 +3,13 @@
 
 <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EnergyFlow | Smart Energy Monitor</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="EnergyFlow — Smart home energy monitoring dashboard" />
+    <meta name="theme-color" content="#060c14" />
+    <title>EnergyFlow</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link
-        href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Space+Mono:wght@400;700&family=Exo+2:wght@300;400;600;800&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Space+Mono:wght@400;700&family=Exo+2:wght@300;400;500;600;800&display=swap"
         rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="style.css" />
@@ -18,8 +20,8 @@
     <div class="bg-grid"></div>
     <div class="bg-glow"></div>
 
-    <!-- NAVBAR -->
-    <nav class="navbar">
+    <!-- ═══════════════════════════ NAVBAR ═══════════════════════════ -->
+    <nav class="navbar" id="navbar">
         <div class="nav-brand">
             <div class="brand-icon">⚡</div>
             <div>
@@ -29,369 +31,241 @@
         </div>
 
         <div class="nav-tabs" id="navTabs" style="display:none">
-            <button class="nav-tab active" data-page="dashboard" onclick="showPage('dashboard')">
-                <span class="tab-icon">◈</span> Dashboard
-            </button>
-            <button class="nav-tab" data-page="statistics" onclick="showPage('statistics')">
-                <span class="tab-icon">◉</span> Statistics
-            </button>
-            <button class="nav-tab" data-page="live" onclick="showPage('live')">
-                <span class="tab-icon live-dot">●</span> Live
-            </button>
-            <button class="nav-tab" data-page="charges" onclick="showPage('charges')">
-                <span class="tab-icon">₹</span> Charges
-            </button>
+            <button class="nav-tab active" data-page="dashboard" onclick="showPage('dashboard')"><span>◈</span>
+                Dashboard</button>
+            <button class="nav-tab" data-page="live" onclick="showPage('live')"><span class="live-dot">●</span>
+                Live</button>
+            <button class="nav-tab" data-page="statistics" onclick="showPage('statistics')"><span>◉</span>
+                Statistics</button>
+            <button class="nav-tab" data-page="charges" onclick="showPage('charges')"><span>₹</span> Charges</button>
+            <button class="nav-tab" data-page="account" onclick="showPage('account')"><span>◎</span> Account</button>
         </div>
 
-        <div class="nav-actions">
-            <button class="btn-secondary" id="regDevBtn" style="display:none" onclick="openDeviceModal()">+
-                Device</button>
-            <div id="userBadge" class="user-badge" style="display:none">
-                <div class="user-dot"></div>
-                <span id="userEmail"></span>
+        <div class="nav-right" id="navRight" style="display:none">
+            <div class="connection-pill" id="connPill"><span class="conn-dot"></span><span
+                    id="connLabel">Connecting</span></div>
+            <div class="user-chip" onclick="showPage('account')">
+                <div class="user-avatar" id="userAvatar">?</div>
+                <span id="userNameChip">—</span>
             </div>
-            <button id="logoutBtn" class="btn-danger" style="display:none" onclick="logout()">Logout</button>
+            <button class="btn-icon" title="Logout" onclick="logout()">⏻</button>
         </div>
     </nav>
 
-    <!-- AUTH -->
+    <!-- ═══════════════════════════ AUTH ═══════════════════════════ -->
     <div id="authDiv" class="auth-overlay">
-        <div class="auth-container">
-            <div class="auth-brand">
-                <div class="auth-icon">⚡</div>
+        <div class="auth-wrap">
+            <div class="auth-left">
+                <div class="auth-logo">⚡</div>
                 <h1>EnergyFlow</h1>
-                <p>Real-time energy intelligence for your home</p>
-            </div>
-            <div class="auth-card">
-                <div class="auth-tabs">
-                    <button class="auth-tab active" id="loginTabBtn" onclick="switchAuthTab('login')">Login</button>
-                    <button class="auth-tab" id="signupTabBtn" onclick="switchAuthTab('signup')">Sign Up</button>
-                </div>
-                <div class="auth-form">
-                    <div class="input-group">
-                        <label>Email Address</label>
-                        <input id="email" type="email" placeholder="you@example.com" />
-                    </div>
-                    <div class="input-group">
-                        <label>Password</label>
-                        <input id="password" type="password" placeholder="••••••••" />
-                    </div>
-                    <button id="authSubmitBtn" class="btn-primary full-width" onclick="login()">Login</button>
-                    <div id="authError" class="auth-error"></div>
+                <p>Real-time energy monitoring for your home. Track usage, predict bills, detect faults.</p>
+                <div class="auth-features">
+                    <div class="af"><span>📊</span>Real-time charts</div>
+                    <div class="af"><span>🤖</span>ML anomaly detection</div>
+                    <div class="af"><span>💡</span>Bill prediction</div>
+                    <div class="af"><span>📱</span>Any device, anywhere</div>
                 </div>
             </div>
-            <div class="auth-features">
-                <div class="feat">📊 Real-time Charts</div>
-                <div class="feat">💡 AI Anomaly Detection</div>
-                <div class="feat">📱 ESP32 Integration</div>
+            <div class="auth-right">
+                <div class="auth-card">
+                    <div class="auth-tabs">
+                        <button class="auth-tab active" id="loginTabBtn" onclick="switchAuthTab('login')">Sign
+                            In</button>
+                        <button class="auth-tab" id="signupTabBtn" onclick="switchAuthTab('signup')">Create
+                            Account</button>
+                    </div>
+                    <div class="auth-form">
+                        <div class="input-group">
+                            <label>Email Address</label>
+                            <input id="email" type="email" placeholder="you@example.com" autocomplete="email" />
+                        </div>
+                        <div class="input-group">
+                            <label>Password</label>
+                            <input id="password" type="password" placeholder="••••••••"
+                                autocomplete="current-password" />
+                        </div>
+                        <button id="authSubmitBtn" class="btn-primary full-width" onclick="login()">Sign In</button>
+                        <div id="authError" class="auth-error"></div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 
-    <!-- MAIN APP -->
+    <!-- ═══════════════════════════ APP ═══════════════════════════ -->
     <main id="appDiv" style="display:none">
 
-        <!-- ===== PAGE 1: DASHBOARD ===== -->
+        <!-- ═══ PAGE 1: DASHBOARD ═══ -->
         <div id="page-dashboard" class="page active">
             <div class="page-header">
                 <div>
                     <h2 class="page-title">Dashboard</h2>
-                    <p class="page-sub">Overview of your energy system</p>
+                    <p class="page-sub" id="dashGreeting">Good morning</p>
                 </div>
-                <div class="page-time" id="dashTime">--:--:--</div>
+                <div class="header-right">
+                    <div class="page-time" id="dashTime">--:--:--</div>
+                    <button class="btn-secondary-sm" onclick="openDeviceModal()">+ Register Device</button>
+                </div>
             </div>
 
+            <!-- KPI ROW -->
             <div class="kpi-grid">
                 <div class="kpi-card amber">
-                    <div class="kpi-icon">⚡</div>
-                    <div class="kpi-body">
-                        <div class="kpi-label">Live Power</div>
-                        <div class="kpi-value"><span id="kpiPower">0.0</span><span class="kpi-unit">W</span></div>
-                    </div>
+                    <div class="kpi-top"><span class="kpi-icon">⚡</span><span class="kpi-label">Live Power</span></div>
+                    <div class="kpi-value"><span id="kpiPower">—</span><span class="kpi-unit">W</span></div>
+                    <div class="kpi-sub" id="kpiPowerSub">Waiting for device</div>
                 </div>
                 <div class="kpi-card blue">
-                    <div class="kpi-icon">〜</div>
-                    <div class="kpi-body">
-                        <div class="kpi-label">Voltage</div>
-                        <div class="kpi-value"><span id="kpiVoltage">0.0</span><span class="kpi-unit">V</span></div>
-                    </div>
+                    <div class="kpi-top"><span class="kpi-icon">〜</span><span class="kpi-label">Voltage</span></div>
+                    <div class="kpi-value"><span id="kpiVoltage">—</span><span class="kpi-unit">V</span></div>
+                    <div class="kpi-sub" id="kpiVoltageSub">Nominal: 220–240V</div>
                 </div>
                 <div class="kpi-card green">
-                    <div class="kpi-icon">⊕</div>
-                    <div class="kpi-body">
-                        <div class="kpi-label">Total kWh</div>
-                        <div class="kpi-value"><span id="kpiKwh">0.00</span><span class="kpi-unit">kWh</span></div>
+                    <div class="kpi-top"><span class="kpi-icon">⊕</span><span class="kpi-label">Meter Reading</span>
                     </div>
+                    <div class="kpi-value"><span id="kpiKwh">—</span><span class="kpi-unit">kWh</span></div>
+                    <div class="kpi-sub" id="kpiKwhSub">Since last reset</div>
                 </div>
                 <div class="kpi-card red">
-                    <div class="kpi-icon">₹</div>
-                    <div class="kpi-body">
-                        <div class="kpi-label">Est. Bill</div>
-                        <div class="kpi-value">₹<span id="kpiBill">0.00</span></div>
-                    </div>
+                    <div class="kpi-top"><span class="kpi-icon">₹</span><span class="kpi-label">Est. Bill</span></div>
+                    <div class="kpi-value">₹<span id="kpiBill">—</span></div>
+                    <div class="kpi-sub" id="kpiBillSlab">—</div>
                 </div>
             </div>
 
-            <div class="dash-grid">
+            <!-- MAIN GRID -->
+            <div class="dash-main-grid">
+                <!-- Device panel -->
                 <div class="card">
                     <div class="card-header">
-                        <h3>Registered Devices</h3><span class="auto-badge">10s refresh</span>
+                        <h3>Devices</h3>
+                        <span class="auto-badge" id="deviceRefreshBadge">10s refresh</span>
                     </div>
                     <div id="deviceList">
                         <div class="skeleton-item"></div>
+                        <div class="skeleton-item" style="margin-top:8px;opacity:0.5"></div>
                     </div>
                 </div>
 
-                <div class="card">
+                <!-- Live chart -->
+                <div class="card chart-card">
                     <div class="card-header">
-                        <h3>Power Overview</h3>
-                        <div class="chart-legend">
-                            <span class="leg amber">● Power (W)</span>
-                            <span class="leg blue">● Voltage (V)</span>
+                        <h3>Live Power & Voltage</h3>
+                        <div class="chart-legend-row">
+                            <span class="cleg amber">● Power</span>
+                            <span class="cleg blue">● Voltage</span>
                         </div>
                     </div>
                     <div class="chart-wrapper"><canvas id="dashPowerChart"></canvas></div>
                 </div>
 
-                <div class="card billing-card">
+                <!-- Billing summary -->
+                <div class="card">
                     <div class="card-header">
-                        <h3>Billing Period</h3>
+                        <h3>Current Billing Period</h3>
                         <button class="btn-primary-sm" id="takeBtn" onclick="takeReading()">Take Reading</button>
                     </div>
-                    <div class="billing-meter">
-                        <div class="bill-row"><span>Units Since Last Bill</span><span class="bill-val"
-                                id="dashUsedUnits">0.00 kWh</span></div>
-                        <div class="bill-row"><span>Estimated Amount</span><span class="bill-val amber"
-                                id="dashAmount">₹0.00</span></div>
-                        <div class="bill-row"><span>Meter Reading</span><span class="bill-val" id="dashTotalUnits">0.00
-                                kWh</span></div>
+                    <div class="bill-rows">
+                        <div class="bill-row"><span>Units since last bill</span><span class="bval"
+                                id="dashUsedUnits">—</span></div>
+                        <div class="bill-row"><span>Energy charge</span><span class="bval"
+                                id="dashEnergyCharge">—</span></div>
+                        <div class="bill-row"><span>Fixed charge</span><span class="bval" id="dashFixedCharge">—</span>
+                        </div>
+                        <div class="bill-row"><span>Electricity duty (15%)</span><span class="bval"
+                                id="dashDuty">—</span></div>
+                        <div class="bill-row total-row"><span>Total Estimate</span><span class="bval amber-text"
+                                id="dashTotal">—</span></div>
                     </div>
-                    <div class="slab-track">
-                        <div class="slab-segment s1">Free<br>0-100</div>
-                        <div class="slab-segment s2">₹2.25<br>101-200</div>
-                        <div class="slab-segment s3">₹4.50<br>201-500</div>
-                        <div class="slab-segment s4">₹6.60<br>500+</div>
+                    <div class="slab-bar-wrap">
+                        <div class="slab-bar">
+                            <div class="sb s1">Free</div>
+                            <div class="sb s2">₹2.25</div>
+                            <div class="sb s3">₹4.50</div>
+                            <div class="sb s4">₹6.60</div>
+                        </div>
+                        <div class="slab-needle" id="slabNeedle"></div>
                     </div>
-                    <div class="slab-indicator" id="slabIndicator" style="left:0%"></div>
                 </div>
             </div>
 
-            <div class="card">
-                <div class="card-header">
-                    <h3>Billing History Calendar</h3>
-                    <div class="cal-nav">
-                        <button onclick="prevMonth()">◀</button>
-                        <span id="calendarMonth">—</span>
-                        <button onclick="nextMonth()">▶</button>
-                    </div>
-                </div>
-                <div class="calendar-days-header">
-                    <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
-                </div>
-                <div class="calendar-grid" id="calendarGrid"></div>
-            </div>
-
-            <!-- OUTAGE SUMMARY CARD -->
-            <div class="card">
-                <div class="card-header">
-                    <h3>🔴 Power Interruptions</h3>
-                    <span class="auto-badge" id="outageBadge">Loading...</span>
-                </div>
-                <div class="outage-kpi-row">
-                    <div class="outage-kpi"><span class="outage-kpi-val red-text" id="dashTotalOutages">—</span><span
-                            class="outage-kpi-label">Total Outages</span></div>
-                    <div class="outage-kpi"><span class="outage-kpi-val amber-text" id="dashTotalDowntime">—</span><span
-                            class="outage-kpi-label">Total Downtime</span></div>
-                    <div class="outage-kpi"><span class="outage-kpi-val" id="dashLongestOutage">—</span><span
-                            class="outage-kpi-label">Longest Outage</span></div>
-                    <div class="outage-kpi"><span class="outage-kpi-val" id="dashAvgOutage">—</span><span
-                            class="outage-kpi-label">Avg Duration</span></div>
-                </div>
-                <div id="dashOutageList" class="outage-mini-list"></div>
-            </div>
-        </div>
-
-        <!-- ===== PAGE 2: STATISTICS ===== -->
-        <div id="page-statistics" class="page">
-            <div class="page-header">
-                <div>
-                    <h2 class="page-title">Statistics</h2>
-                    <p class="page-sub">Hourly &amp; daily usage patterns</p>
-                </div>
-                <div class="stat-controls">
-                    <button class="btn-secondary-sm active-btn" id="btnToday"
-                        onclick="setStatView('today')">Today</button>
-                    <button class="btn-secondary-sm" id="btnYesterday"
-                        onclick="setStatView('yesterday')">Yesterday</button>
-                    <button class="btn-secondary-sm" id="btnWeek" onclick="setStatView('week')">7 Days</button>
-                </div>
-            </div>
-            <div class="stats-kpi-row">
-                <div class="mini-kpi"><span class="mini-label">Peak Power</span><span class="mini-val amber-text"
-                        id="statPeak">—</span></div>
-                <div class="mini-kpi"><span class="mini-label">Avg Power</span><span class="mini-val"
-                        id="statAvg">—</span></div>
-                <div class="mini-kpi"><span class="mini-label">Min Voltage</span><span class="mini-val blue-text"
-                        id="statMinV">—</span></div>
-                <div class="mini-kpi"><span class="mini-label">Max Voltage</span><span class="mini-val blue-text"
-                        id="statMaxV">—</span></div>
-                <div class="mini-kpi"><span class="mini-label">Anomalies</span><span class="mini-val red-text"
-                        id="statAnomalies">0</span></div>
-            </div>
-            <div class="stats-grid">
-                <div class="card span-2">
-                    <div class="card-header">
-                        <h3>Hourly Energy Consumption (kWh)</h3>
-                    </div>
-                    <div class="chart-wrapper-tall"><canvas id="hourlyEnergyChart"></canvas></div>
-                </div>
+            <!-- OUTAGE + CALENDAR ROW -->
+            <div class="dash-bottom-grid">
                 <div class="card">
                     <div class="card-header">
-                        <h3>Hourly Avg Power (W)</h3>
+                        <h3>🔴 Power Interruptions</h3>
+                        <span class="auto-badge" id="outageBadge">—</span>
                     </div>
-                    <div class="chart-wrapper"><canvas id="hourlyPowerChart"></canvas></div>
+                    <div class="outage-stats-row">
+                        <div class="ostat"><span class="ostat-val red-text" id="oTotal">—</span><span
+                                class="ostat-label">Outages</span></div>
+                        <div class="ostat"><span class="ostat-val amber-text" id="oDowntime">—</span><span
+                                class="ostat-label">Total Downtime</span></div>
+                        <div class="ostat"><span class="ostat-val" id="oLongest">—</span><span
+                                class="ostat-label">Longest</span></div>
+                        <div class="ostat"><span class="ostat-val" id="oAvg">—</span><span class="ostat-label">Avg
+                                Duration</span></div>
+                    </div>
+                    <div id="dashOutageList" class="outage-list"></div>
                 </div>
+
                 <div class="card">
                     <div class="card-header">
-                        <h3>Voltage Stability</h3>
-                    </div>
-                    <div class="chart-wrapper"><canvas id="voltageStabilityChart"></canvas></div>
-                </div>
-            </div>
-            <!-- ML PREDICTIONS PANEL -->
-            <div class="card">
-                <div class="card-header">
-                    <h3>🤖 ML Model Predictions</h3><span class="auto-badge">Client-side inference</span>
-                </div>
-                <div class="ml-grid">
-                    <div class="ml-block">
-                        <div class="ml-model-name">Isolation Forest</div>
-                        <div class="ml-model-sub">Power Anomaly Detection</div>
-                        <div class="ml-result-row">
-                            <div class="ml-score-box"><span class="ml-score-val" id="mlAnomalyPct">—</span><span
-                                    class="ml-score-label">anomaly rate</span></div>
-                            <div class="ml-detail">
-                                <div class="ml-detail-row"><span>Readings analysed</span><span
-                                        id="mlReadingsCount">—</span></div>
-                                <div class="ml-detail-row"><span>Flagged readings</span><span id="mlFlaggedCount"
-                                        class="red-text">—</span></div>
-                                <div class="ml-detail-row"><span>Verdict</span><span id="mlAnomalyVerdict"
-                                        class="green-text">—</span></div>
-                            </div>
+                        <h3>Billing Calendar</h3>
+                        <div class="cal-nav">
+                            <button onclick="prevMonth()">◀</button>
+                            <span id="calendarMonth">—</span>
+                            <button onclick="nextMonth()">▶</button>
                         </div>
-                        <div class="ml-mechansim">Builds random trees. Anomalies isolated in fewer splits — shorter path
-                            = more abnormal. Top 5% flagged.</div>
                     </div>
-                    <div class="ml-block">
-                        <div class="ml-model-name">KMeans Clustering</div>
-                        <div class="ml-model-sub">Load Type Classification</div>
-                        <div class="ml-result-row">
-                            <div class="ml-score-box"><span class="ml-score-val" id="mlCurrentLoad">—</span><span
-                                    class="ml-score-label">current load</span></div>
-                            <div class="ml-detail">
-                                <div class="ml-detail-row"><span>Standby hours</span><span id="mlStandby">—</span></div>
-                                <div class="ml-detail-row"><span>Light load hours</span><span id="mlLight">—</span>
-                                </div>
-                                <div class="ml-detail-row"><span>Medium / Heavy hrs</span><span id="mlHeavy">—</span>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="ml-mechansim">Groups readings into 4 clusters by power + current + time. Labels by
-                            avg power: Standby &lt;100W → Heavy 2000W+.</div>
+                    <div class="cal-days-head">
+                        <span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span>
                     </div>
-                    <div class="ml-block">
-                        <div class="ml-model-name">Random Forest</div>
-                        <div class="ml-model-sub">High Bill Risk Predictor</div>
-                        <div class="ml-result-row">
-                            <div class="ml-score-box"><span class="ml-score-val" id="mlBillRisk">—</span><span
-                                    class="ml-score-label">bill risk</span></div>
-                            <div class="ml-detail">
-                                <div class="ml-detail-row"><span>Projected 30-day units</span><span
-                                        id="mlProjected">—</span></div>
-                                <div class="ml-detail-row"><span>Projected bill</span><span id="mlProjectedBill"
-                                        class="amber-text">—</span></div>
-                                <div class="ml-detail-row"><span>Recommendation</span><span id="mlRecommend"
-                                        class="green-text">—</span></div>
-                            </div>
-                        </div>
-                        <div class="ml-mechansim">200 trees vote on 30-day rolling usage exceeding 300 kWh. Extrapolates
-                            current hourly avg to full month.</div>
-                    </div>
-                </div>
-            </div>
-            <div class="card">
-                <div class="card-header">
-                    <h3>⚠ Anomaly Log</h3><span class="auto-badge">Auto-detected</span>
-                </div>
-                <div id="anomalyTable">
-                    <div class="empty-state">No anomalies detected in this period</div>
-                </div>
-            </div>
-            <!-- OUTAGE LOG TABLE -->
-            <div class="card">
-                <div class="card-header">
-                    <h3>🔴 Power Outage Log</h3><span class="auto-badge">From device</span>
-                </div>
-                <div class="hist-table-wrap">
-                    <table class="hist-table">
-                        <thead>
-                            <tr>
-                                <th>#</th>
-                                <th>Outage Started</th>
-                                <th>Power Restored</th>
-                                <th>Duration</th>
-                                <th>Energy Reset</th>
-                            </tr>
-                        </thead>
-                        <tbody id="outageTableBody">
-                            <tr>
-                                <td colspan="5" class="empty-td">No outages recorded</td>
-                            </tr>
-                        </tbody>
-                    </table>
+                    <div class="calendar-grid" id="calendarGrid"></div>
                 </div>
             </div>
         </div>
 
-        <!-- ===== PAGE 3: LIVE ===== -->
+        <!-- ═══ PAGE 2: LIVE ═══ -->
         <div id="page-live" class="page">
             <div class="page-header">
                 <div>
                     <h2 class="page-title">Live Monitoring</h2>
-                    <p class="page-sub">Real-time sensor readings</p>
+                    <p class="page-sub">Real-time sensor data</p>
                 </div>
-                <div class="live-status" id="liveStatus"><span class="pulse-dot"></span> Connecting...</div>
+                <div class="live-status-bar" id="liveStatus"><span class="pulse-dot"></span> Connecting...</div>
             </div>
 
             <div class="gauge-grid">
                 <div class="gauge-card">
-                    <div class="gauge-label">Voltage</div>
+                    <div class="gcap">Voltage</div>
                     <canvas id="voltageGauge" width="220" height="130"></canvas>
-                    <div class="gauge-value"><span id="liveVoltage">0.0</span><span class="gauge-unit">V</span></div>
-                    <div class="gauge-range">Normal: 220–240V</div>
+                    <div class="gval"><span id="liveVoltage">—</span><span class="gunit">V</span></div>
+                    <div class="grange">Nominal: 220–240V</div>
                     <div class="status-pill" id="voltageStatus">NOMINAL</div>
                 </div>
-                <div class="gauge-card amber-card">
-                    <div class="gauge-label">Current</div>
+                <div class="gauge-card amber-gc">
+                    <div class="gcap">Current</div>
                     <canvas id="currentGauge" width="220" height="130"></canvas>
-                    <div class="gauge-value"><span id="liveCurrent">0.0</span><span class="gauge-unit">A</span></div>
-                    <div class="gauge-range">Max: 32A</div>
+                    <div class="gval"><span id="liveCurrent">—</span><span class="gunit">A</span></div>
+                    <div class="grange">Max rated: 32A</div>
                     <div class="status-pill" id="currentStatus">NOMINAL</div>
                 </div>
-                <div class="gauge-card purple-card">
-                    <div class="gauge-label">Power</div>
+                <div class="gauge-card purple-gc">
+                    <div class="gcap">Power</div>
                     <canvas id="powerGauge" width="220" height="130"></canvas>
-                    <div class="gauge-value"><span id="livePower">0.0</span><span class="gauge-unit">W</span></div>
-                    <div class="gauge-range">Max: 7360W</div>
+                    <div class="gval"><span id="livePower">—</span><span class="gunit">W</span></div>
+                    <div class="grange">Max rated: 7360W</div>
                     <div class="status-pill" id="powerStatus">NOMINAL</div>
                 </div>
-                <div class="gauge-card green-card">
-                    <div class="gauge-label">Energy (Cumulative)</div>
-                    <div class="energy-display">
-                        <div class="energy-big"><span id="liveEnergy">0.000</span> kWh</div>
-                        <div class="energy-cost">Est. Bill: ₹<span id="liveEnergyCost">0.00</span></div>
+                <div class="gauge-card green-gc">
+                    <div class="gcap">Energy (Cumulative)</div>
+                    <div class="energy-big-display">
+                        <div class="ebd-val"><span id="liveEnergy">—</span> kWh</div>
+                        <div class="ebd-bill">Est. bill: ₹<span id="liveEnergyCost">—</span></div>
+                        <div class="ebd-units">Units used: <span id="liveUnitsUsed">—</span> kWh</div>
                     </div>
-                    <div class="gauge-range">Total since meter reset</div>
+                    <div class="grange">Meter reading since reset</div>
                     <div class="status-pill green-pill">RUNNING</div>
                 </div>
             </div>
@@ -399,8 +273,7 @@
             <div class="live-charts-grid">
                 <div class="card">
                     <div class="card-header">
-                        <h3>Voltage (V)</h3>
-                        <div class="refresh-badge">3s</div>
+                        <h3>Voltage (V)</h3><span class="refresh-badge">3s refresh</span>
                     </div>
                     <div class="chart-wrapper"><canvas id="liveVoltageChart"></canvas></div>
                 </div>
@@ -420,162 +293,452 @@
 
             <div class="card">
                 <div class="card-header">
-                    <h3>Raw Data Log</h3><button class="btn-secondary-sm" onclick="clearLog()">Clear</button>
+                    <h3>Data Log</h3><button class="btn-secondary-sm" onclick="clearLog()">Clear</button>
                 </div>
                 <div id="rawLog" class="raw-log"></div>
             </div>
         </div>
 
-        <!-- ===== PAGE 4: CHARGES ===== -->
+        <!-- ═══ PAGE 3: STATISTICS ═══ -->
+        <div id="page-statistics" class="page">
+            <div class="page-header">
+                <div>
+                    <h2 class="page-title">Statistics</h2>
+                    <p class="page-sub">Historical analysis — synced from cloud</p>
+                </div>
+                <div class="stat-controls">
+                    <button class="btn-secondary-sm active-btn" id="btnToday"
+                        onclick="setStatView('today')">Today</button>
+                    <button class="btn-secondary-sm" id="btnYesterday"
+                        onclick="setStatView('yesterday')">Yesterday</button>
+                    <button class="btn-secondary-sm" id="btn7d" onclick="setStatView('7d')">7 Days</button>
+                    <button class="btn-secondary-sm" id="btn30d" onclick="setStatView('30d')">30 Days</button>
+                    <button class="btn-secondary-sm" id="btnExport" onclick="exportCSV()">↓ Export</button>
+                </div>
+            </div>
+
+            <!-- STAT KPIs — loaded from Firebase -->
+            <div class="stats-kpi-row">
+                <div class="mini-kpi"><span class="mk-label">Peak Power</span><span class="mk-val amber-text"
+                        id="statPeak">—</span></div>
+                <div class="mini-kpi"><span class="mk-label">Avg Power</span><span class="mk-val" id="statAvg">—</span>
+                </div>
+                <div class="mini-kpi"><span class="mk-label">Min Voltage</span><span class="mk-val blue-text"
+                        id="statMinV">—</span></div>
+                <div class="mini-kpi"><span class="mk-label">Max Voltage</span><span class="mk-val blue-text"
+                        id="statMaxV">—</span></div>
+                <div class="mini-kpi"><span class="mk-label">Total Energy</span><span class="mk-val green-text"
+                        id="statTotalEnergy">—</span></div>
+                <div class="mini-kpi"><span class="mk-label">Anomaly Hours</span><span class="mk-val red-text"
+                        id="statAnomalies">—</span></div>
+            </div>
+
+            <div class="stats-grid">
+                <div class="card span-2">
+                    <div class="card-header">
+                        <h3>Hourly Energy Consumption (kWh)</h3><span class="cloud-badge">☁ From Firebase</span>
+                    </div>
+                    <div class="chart-wrapper-tall"><canvas id="hourlyEnergyChart"></canvas></div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Avg Power per Hour (W)</h3>
+                    </div>
+                    <div class="chart-wrapper"><canvas id="hourlyPowerChart"></canvas></div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <h3>Voltage Band</h3>
+                    </div>
+                    <div class="chart-wrapper"><canvas id="voltageStabilityChart"></canvas></div>
+                </div>
+            </div>
+
+            <!-- ML PANEL -->
+            <div class="card ml-panel">
+                <div class="card-header">
+                    <h3>🤖 ML Predictions</h3>
+                    <div style="display:flex;gap:8px;align-items:center">
+                        <span class="cloud-badge">☁ Cloud data</span>
+                        <button class="btn-primary-sm" onclick="loadStatisticsPage()">↻ Refresh</button>
+                    </div>
+                </div>
+                <div class="ml-grid">
+                    <div class="ml-block">
+                        <div class="ml-name">Isolation Forest</div>
+                        <div class="ml-desc">Power Anomaly Detection</div>
+                        <div class="ml-body">
+                            <div class="ml-score-wrap">
+                                <div class="ml-score-val" id="mlAnomalyPct">—</div>
+                                <div class="ml-score-lbl">anomaly rate</div>
+                            </div>
+                            <div class="ml-rows">
+                                <div class="ml-row"><span>Records analysed</span><span id="mlReadings">—</span></div>
+                                <div class="ml-row"><span>Flagged readings</span><span id="mlFlagged"
+                                        class="red-text">—</span></div>
+                                <div class="ml-row"><span>Verdict</span><span id="mlVerdict">—</span></div>
+                            </div>
+                        </div>
+                        <div class="ml-how">Random trees isolate each point. Anomalies need fewer splits — shortest path
+                            = most abnormal. Top 5% flagged.</div>
+                    </div>
+                    <div class="ml-block">
+                        <div class="ml-name">KMeans Clustering</div>
+                        <div class="ml-desc">Load Type Classification</div>
+                        <div class="ml-body">
+                            <div class="ml-score-wrap">
+                                <div class="ml-score-val" id="mlCurrentLoad">—</div>
+                                <div class="ml-score-lbl">current load</div>
+                            </div>
+                            <div class="ml-rows">
+                                <div class="ml-row"><span>Standby periods</span><span id="mlStandby">—</span></div>
+                                <div class="ml-row"><span>Light / Medium</span><span id="mlMedium">—</span></div>
+                                <div class="ml-row"><span>Heavy load periods</span><span id="mlHeavy">—</span></div>
+                            </div>
+                        </div>
+                        <div class="ml-how">K=4 clusters by power + current + hour-of-day. Each cluster labelled by avg
+                            power: &lt;100W Standby → 2000W+ Heavy.</div>
+                    </div>
+                    <div class="ml-block">
+                        <div class="ml-name">Random Forest</div>
+                        <div class="ml-desc">30-Day Bill Risk Forecast</div>
+                        <div class="ml-body">
+                            <div class="ml-score-wrap">
+                                <div class="ml-score-val" id="mlBillRisk">—</div>
+                                <div class="ml-score-lbl">bill risk</div>
+                            </div>
+                            <div class="ml-rows">
+                                <div class="ml-row"><span>Projected units</span><span id="mlProjUnits">—</span></div>
+                                <div class="ml-row"><span>Projected bill</span><span id="mlProjBill"
+                                        class="amber-text">—</span></div>
+                                <div class="ml-row"><span>Action</span><span id="mlAction">—</span></div>
+                            </div>
+                        </div>
+                        <div class="ml-how">200 trees vote on 30-day rolling units exceeding 300 kWh. Extrapolates
+                            current hourly avg to full month.</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ANOMALY LOG -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>⚠ Anomaly Log</h3><span class="cloud-badge">☁ Persistent</span>
+                </div>
+                <div id="anomalyTable">
+                    <div class="empty-state">Loading anomaly data...</div>
+                </div>
+            </div>
+
+            <!-- OUTAGE LOG -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>🔴 Power Outage History</h3><span class="cloud-badge">☁ All devices</span>
+                </div>
+                <div class="tbl-wrap">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Started</th>
+                                <th>Restored</th>
+                                <th>Duration</th>
+                                <th>Energy Impact</th>
+                            </tr>
+                        </thead>
+                        <tbody id="outageTableBody">
+                            <tr>
+                                <td colspan="5" class="empty-td">Loading...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ PAGE 4: CHARGES ═══ -->
         <div id="page-charges" class="page">
             <div class="page-header">
                 <div>
                     <h2 class="page-title">Charges</h2>
-                    <p class="page-sub">TNEB Domestic Tariff & Bill Calculator</p>
+                    <p class="page-sub">TNEB tariff, bill calculator & payment history</p>
                 </div>
                 <div class="tneb-badge">TNEB · LT-I Domestic</div>
             </div>
 
             <div class="card">
                 <div class="card-header">
-                    <h3>📋 TNEB LT-I Domestic Tariff Schedule (2023-24)</h3>
-                    <a href="https://www.tneb.in/tariff" target="_blank" class="src-link">Source: tneb.in ↗</a>
+                    <h3>📋 TNEB LT-I Domestic Tariff (2023-24)</h3>
+                    <a href="https://www.tneb.in" target="_blank" class="src-link">tneb.in ↗</a>
                 </div>
-                <div class="tariff-table-wrap">
-                    <table class="tariff-table">
+                <div class="tbl-wrap">
+                    <table class="data-table tariff-table">
                         <thead>
                             <tr>
                                 <th>Slab</th>
-                                <th>Units Consumed</th>
+                                <th>Units</th>
                                 <th>Energy Rate</th>
-                                <th>Fixed Charge / Month</th>
-                                <th>Notes</th>
+                                <th>Fixed Charge/Month</th>
+                                <th>Electricity Duty</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <tr class="slab-row">
-                                <td><span class="slab-badge s1b">1</span></td>
+                            <tr>
+                                <td><span class="slab-dot s1d">1</span></td>
                                 <td>0 – 100 units</td>
                                 <td class="rate-free">FREE</td>
                                 <td>₹45.00</td>
-                                <td>First 100 units are exempt from energy charges</td>
+                                <td>Nil</td>
                             </tr>
-                            <tr class="slab-row">
-                                <td><span class="slab-badge s2b">2</span></td>
+                            <tr>
+                                <td><span class="slab-dot s2d">2</span></td>
                                 <td>101 – 200 units</td>
-                                <td class="rate-low">₹2.25 / unit</td>
+                                <td class="rate-low">₹2.25/unit</td>
                                 <td>₹75.00</td>
-                                <td>Only the units between 101–200 are charged at this rate</td>
+                                <td>15% on energy charges</td>
                             </tr>
-                            <tr class="slab-row">
-                                <td><span class="slab-badge s3b">3</span></td>
+                            <tr>
+                                <td><span class="slab-dot s3d">3</span></td>
                                 <td>201 – 500 units</td>
-                                <td class="rate-mid">₹4.50 / unit</td>
+                                <td class="rate-mid">₹4.50/unit</td>
                                 <td>₹115.00</td>
-                                <td>Units between 201–500 charged at this rate</td>
+                                <td>15% on energy charges</td>
                             </tr>
-                            <tr class="slab-row">
-                                <td><span class="slab-badge s4b">4</span></td>
+                            <tr>
+                                <td><span class="slab-dot s4d">4</span></td>
                                 <td>Above 500 units</td>
-                                <td class="rate-high">₹6.60 / unit</td>
+                                <td class="rate-high">₹6.60/unit</td>
                                 <td>₹155.00</td>
-                                <td>All units beyond 500 charged at premium rate</td>
+                                <td>15% on energy charges</td>
                             </tr>
                         </tbody>
                     </table>
                 </div>
                 <div class="tariff-notes">
-                    <div class="note-item"><span class="note-icon">ℹ</span><span>Electricity Duty @ 15% is applicable on
-                            energy charges above Slab 1.</span></div>
-                    <div class="note-item"><span class="note-icon">ℹ</span><span>Single-phase domestic connections (LT
-                            Category I). 3-phase and commercial connections have different tariffs.</span></div>
-                    <div class="note-item"><span class="note-icon">ℹ</span><span>Meter rent: ₹10–20/month depending on
-                            meter type. Not included in calculator below.</span></div>
-                    <div class="note-item warn"><span class="note-icon">⚠</span><span>Tariff rates are subject to
-                            revision. Always verify current rates at <strong>tneb.in</strong> before payment.</span>
-                    </div>
+                    <div class="tnt info">ℹ Meter rent ₹10–20/month applies separately and is not included in the
+                        calculator.</div>
+                    <div class="tnt info">ℹ Tariff is for single-phase domestic consumers (LT Category I).</div>
+                    <div class="tnt warn">⚠ Rates subject to revision — always verify at <strong>tneb.in</strong> before
+                        payment.</div>
                 </div>
             </div>
 
-            <div class="calc-grid">
+            <div class="charges-grid">
+                <!-- Manual calculator -->
                 <div class="card">
                     <div class="card-header">
-                        <h3>🧮 Manual Bill Calculator</h3>
+                        <h3>🧮 Bill Calculator</h3>
                     </div>
                     <div class="calc-body">
-                        <div class="input-group">
-                            <label>Units Consumed (kWh)</label>
-                            <input id="calcUnits" type="number" min="0" placeholder="e.g. 250"
-                                oninput="calculateCustomBill()" />
-                        </div>
-                        <div class="input-group">
-                            <label>Billing Period</label>
-                            <select id="calcMonths" onchange="calculateCustomBill()">
+                        <div class="input-group"><label>Units Consumed (kWh)</label><input id="calcUnits" type="number"
+                                min="0" placeholder="e.g. 250" oninput="calcBill()" /></div>
+                        <div class="input-group"><label>Billing Period</label>
+                            <select id="calcMonths" onchange="calcBill()">
                                 <option value="1">1 Month</option>
                                 <option value="2">2 Months (Bi-monthly)</option>
                             </select>
                         </div>
-                        <div class="calc-result" id="calcResult" style="display:none">
-                            <div class="calc-breakdown" id="calcBreakdown"></div>
-                            <div class="calc-total">
+                        <div id="calcResult" class="calc-result" style="display:none">
+                            <div class="calc-lines" id="calcLines"></div>
+                            <div class="calc-total-row">
                                 <span>Total Estimated Bill</span>
-                                <span class="calc-total-val" id="calcTotal">₹0.00</span>
+                                <span class="calc-grand-total" id="calcGrandTotal">₹0</span>
                             </div>
                         </div>
                     </div>
                 </div>
 
+                <!-- Live estimate -->
                 <div class="card">
                     <div class="card-header">
-                        <h3>⚡ Your Live Bill Estimate</h3><span class="auto-badge">From device</span>
+                        <h3>⚡ Your Live Estimate</h3><span class="cloud-badge">☁ Synced</span>
                     </div>
-                    <div class="live-bill-body">
-                        <div class="live-bill-row"><span>Units this period</span><span id="lbUnits">0.00 kWh</span>
-                        </div>
-                        <div class="live-bill-row"><span>Current slab</span><span id="lbSlab"
+                    <div class="live-bill-rows">
+                        <div class="lbr"><span>Units this period</span><span id="lbUnits">—</span></div>
+                        <div class="lbr"><span>Current slab</span><span id="lbSlab" class="amber-text">—</span></div>
+                        <div class="lbr"><span>Energy charges</span><span id="lbEnergy">—</span></div>
+                        <div class="lbr"><span>Fixed charge (monthly)</span><span id="lbFixed">—</span></div>
+                        <div class="lbr"><span>Electricity duty (15%)</span><span id="lbDuty">—</span></div>
+                        <div class="lbr total-row"><span>Total Estimate</span><span id="lbTotal"
                                 class="amber-text">—</span></div>
-                        <div class="live-bill-row"><span>Energy charges</span><span id="lbEnergy">₹0.00</span></div>
-                        <div class="live-bill-row"><span>Fixed charges (monthly)</span><span id="lbFixed">₹45.00</span>
-                        </div>
-                        <div class="live-bill-row"><span>Electricity duty (15%)</span><span id="lbDuty">₹0.00</span>
-                        </div>
-                        <div class="live-bill-row total-row"><span>Total Estimate</span><span id="lbTotal"
-                                class="amber-text">₹0.00</span></div>
                     </div>
-                    <div class="slab-visual">
+                    <div class="slab-vis">
                         <div class="sv-track">
                             <div class="sv-seg sv-s1" style="width:20%">FREE</div>
                             <div class="sv-seg sv-s2" style="width:20%">₹2.25</div>
                             <div class="sv-seg sv-s3" style="width:30%">₹4.50</div>
                             <div class="sv-seg sv-s4" style="width:30%">₹6.60</div>
                         </div>
-                        <div class="sv-pointer" id="svPointer" style="left:0%">▼</div>
+                        <div class="sv-ptr" id="svPtr">▼</div>
                     </div>
                 </div>
             </div>
 
+            <!-- Billing history — from Firebase, cross-device -->
             <div class="card">
                 <div class="card-header">
                     <h3>📜 Billing History</h3>
+                    <div style="display:flex;gap:8px;align-items:center">
+                        <span class="cloud-badge">☁ Persistent across devices</span>
+                        <span id="billSummaryBadge" class="auto-badge">—</span>
+                    </div>
                 </div>
-                <div class="hist-table-wrap">
-                    <table class="hist-table">
+
+                <!-- Lifetime summary -->
+                <div class="billing-lifetime" id="billLifetime" style="display:none">
+                    <div class="blk"><span class="blk-val" id="blTotalPaid">—</span><span class="blk-label">Total
+                            Paid</span></div>
+                    <div class="blk"><span class="blk-val" id="blTotalUnits">—</span><span class="blk-label">Total
+                            Units</span></div>
+                    <div class="blk"><span class="blk-val" id="blAvgBill">—</span><span class="blk-label">Avg
+                            Bill</span></div>
+                    <div class="blk"><span class="blk-val" id="blHighest">—</span><span class="blk-label">Highest
+                            Bill</span></div>
+                </div>
+
+                <div class="tbl-wrap">
+                    <table class="data-table">
                         <thead>
                             <tr>
                                 <th>#</th>
                                 <th>Period</th>
-                                <th>Units (kWh)</th>
+                                <th>Units</th>
                                 <th>Energy Charge</th>
-                                <th>Fixed Charge</th>
+                                <th>Fixed</th>
+                                <th>Duty</th>
                                 <th>Total</th>
+                                <th>Slab</th>
                             </tr>
                         </thead>
                         <tbody id="billingHistoryBody">
                             <tr>
-                                <td colspan="6" class="empty-td">No billing records yet</td>
+                                <td colspan="8" class="empty-td">Loading billing history...</td>
                             </tr>
                         </tbody>
                     </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══ PAGE 5: ACCOUNT ═══ -->
+        <div id="page-account" class="page">
+            <div class="page-header">
+                <div>
+                    <h2 class="page-title">Account</h2>
+                    <p class="page-sub">Profile, settings & data management</p>
+                </div>
+            </div>
+
+            <div class="account-grid">
+                <!-- Profile card -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>👤 Profile</h3><button class="btn-primary-sm" onclick="saveProfile()">Save</button>
+                    </div>
+                    <div class="account-avatar-row">
+                        <div class="big-avatar" id="bigAvatar">?</div>
+                        <div>
+                            <div style="font-family:'Rajdhani',sans-serif;font-size:1.1rem;color:var(--amber)"
+                                id="profileNameDisplay">—</div>
+                            <div style="font-size:12px;color:var(--text-dim)" id="profileEmailDisplay">—</div>
+                        </div>
+                    </div>
+                    <div class="profile-form">
+                        <div class="input-group"><label>Full Name</label><input id="pfName" placeholder="Your name" />
+                        </div>
+                        <div class="input-group"><label>Phone</label><input id="pfPhone"
+                                placeholder="+91 98765 43210" /></div>
+                        <div class="input-group"><label>Address</label><input id="pfAddress"
+                                placeholder="House no, street, city" /></div>
+                        <div class="input-group"><label>EB Consumer Number</label><input id="pfEbNo"
+                                placeholder="TNEB consumer account number" /></div>
+                        <div class="fg-row">
+                            <div class="input-group"><label>Tariff Type</label>
+                                <select id="pfTariff">
+                                    <option value="LT-I">LT-I (Domestic)</option>
+                                    <option value="LT-II">LT-II (Commercial)</option>
+                                </select>
+                            </div>
+                            <div class="input-group"><label>Sanctioned Load (kW)</label><input id="pfLoad" type="number"
+                                    placeholder="5" /></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Device management -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>📡 Devices</h3><button class="btn-primary-sm" onclick="openDeviceModal()">+ Add
+                            Device</button>
+                    </div>
+                    <div id="accountDeviceList">
+                        <div class="skeleton-item"></div>
+                    </div>
+                    <div class="device-info-box">
+                        <div class="dib-row"><span>WiFiManager SSID</span><span class="dib-val">EnergyFlow-Setup</span>
+                        </div>
+                        <div class="dib-row"><span>BOOT hold to reset WiFi</span><span class="dib-val">3 seconds</span>
+                        </div>
+                        <div class="dib-row"><span>Data send interval</span><span class="dib-val">Every 3s</span></div>
+                        <div class="dib-row"><span>FIFO queue size</span><span class="dib-val">20 readings</span></div>
+                    </div>
+                </div>
+
+                <!-- Account stats -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>📊 Account Summary</h3>
+                    </div>
+                    <div class="acc-stats-grid">
+                        <div class="acc-stat"><span class="acc-stat-val amber-text" id="accTotalBills">—</span><span
+                                class="acc-stat-label">Bills recorded</span></div>
+                        <div class="acc-stat"><span class="acc-stat-val green-text" id="accTotalPaid">—</span><span
+                                class="acc-stat-label">Total paid</span></div>
+                        <div class="acc-stat"><span class="acc-stat-val blue-text" id="accTotalUnits">—</span><span
+                                class="acc-stat-label">Total kWh used</span></div>
+                        <div class="acc-stat"><span class="acc-stat-val red-text" id="accOutages">—</span><span
+                                class="acc-stat-label">Outages logged</span></div>
+                        <div class="acc-stat"><span class="acc-stat-val" id="accAvgBill">—</span><span
+                                class="acc-stat-label">Avg monthly bill</span></div>
+                        <div class="acc-stat"><span class="acc-stat-val" id="accHighest">—</span><span
+                                class="acc-stat-label">Highest bill</span></div>
+                    </div>
+                </div>
+
+                <!-- Data & export -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>💾 Data & Export</h3>
+                    </div>
+                    <div class="data-actions">
+                        <button class="data-action-btn" onclick="exportCSV()">
+                            <span class="da-icon">📄</span>
+                            <div>
+                                <div class="da-title">Export Hourly Data</div>
+                                <div class="da-sub">CSV — last 30 days of readings</div>
+                            </div>
+                        </button>
+                        <button class="data-action-btn" onclick="exportBillingCSV()">
+                            <span class="da-icon">🧾</span>
+                            <div>
+                                <div class="da-title">Export Billing History</div>
+                                <div class="da-sub">CSV — all billing records</div>
+                            </div>
+                        </button>
+                        <button class="data-action-btn" onclick="exportOutagesCSV()">
+                            <span class="da-icon">🔴</span>
+                            <div>
+                                <div class="da-title">Export Outage Log</div>
+                                <div class="da-sub">CSV — all power interruptions</div>
+                            </div>
+                        </button>
+                    </div>
+                    <div class="data-info">
+                        <div class="di-row"><span>Data storage</span><span class="di-val">Firebase RTDB</span></div>
+                        <div class="di-row"><span>Cross-device sync</span><span class="di-val green-text">✓
+                                Enabled</span></div>
+                        <div class="di-row"><span>Data retention</span><span class="di-val">Unlimited</span></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -584,15 +747,12 @@
 
     <!-- DEVICE MODAL -->
     <div id="deviceModal" class="modal">
-        <div class="modal-content card">
-            <h3>Register New Device</h3>
-            <p style="font-size:12px;margin-bottom:15px;opacity:0.6">Enter your ESP32 Device ID exactly as configured in
-                firmware</p>
-            <div class="input-group">
-                <label>Device ID</label>
-                <input id="deviceId" placeholder="e.g. ESP001" />
-            </div>
-            <div style="margin-top:20px;display:flex;gap:10px">
+        <div class="modal-box card">
+            <h3>Register ESP32 Device</h3>
+            <p style="font-size:12px;color:var(--text-dim);margin:8px 0 20px">Enter the Device ID exactly as set in your
+                ESP32 firmware</p>
+            <div class="input-group"><label>Device ID</label><input id="deviceId" placeholder="e.g. ESP001" /></div>
+            <div class="modal-actions">
                 <button class="btn-primary" onclick="registerDevice()" style="flex:1">Register</button>
                 <button class="btn-secondary" onclick="closeDeviceModal()">Cancel</button>
             </div>
@@ -600,6 +760,9 @@
     </div>
 
     <div id="toast" class="toast"></div>
+    <div id="loadingOverlay" class="loading-overlay" style="display:none">
+        <div class="loader"></div>
+    </div>
 
     <script type="module" src="app.js"></script>
 </body>

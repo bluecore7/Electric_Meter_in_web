@@ -1,22 +1,26 @@
-# models.py — Pydantic models for EnergyFlow API
+# models.py — EnergyFlow v3.0 data models
 
 from pydantic import BaseModel
 from typing import Optional
 
 class DevicePayload(BaseModel):
-    """
-    Payload sent by ESP32 every 3 seconds.
-    Fields:
-      device_id   : Unique device identifier (e.g. "ESP001")
-      voltage     : AC voltage in Volts (V)
-      current     : AC current in Amperes (A)  ← NEW
-      power       : Apparent/active power in Watts (W)
-      energy_kWh  : Cumulative energy since last reset (kWh)
-      timestamp   : Unix epoch seconds (UTC)
-    """
     device_id:  str
     voltage:    float
-    current:    float = 0.0   # Optional for backward compatibility
+    current:    float = 0.0
     power:      float
     energy_kWh: float
     timestamp:  int
+
+class OutagePayload(BaseModel):
+    device_id: str
+    start_ts:  int
+    end_ts:    int
+    duration:  int
+
+class UserProfile(BaseModel):
+    display_name:    Optional[str] = None
+    phone:           Optional[str] = None
+    address:         Optional[str] = None
+    eb_consumer_no:  Optional[str] = None
+    tariff_type:     Optional[str] = None
+    sanctioned_load: Optional[float] = None
