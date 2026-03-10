@@ -85,15 +85,7 @@ window.showPage = (page) => {
 };
 
 // ===================== INIT =====================
-function initApp() {
-  initCharts();
-  loadDevices();
-  loadBillingHistory();
-  startLivePoll();
-  setInterval(loadDevices, 10000);
-  setInterval(updateDashTime, 1000);
-  renderCalendar();
-}
+// initApp defined below with outage support
 
 function updateDashTime() {
   const el = document.getElementById("dashTime");
@@ -979,4 +971,276 @@ function startLivePoll() {
 function initCharts() {
   initDashChart();
   initLiveCharts();
+}
+
+// ===================== OUTAGE DATA =====================
+let outageData = [];
+
+async function loadOutages() {
+  if (!auth.currentUser) return;
+  const token = await auth.currentUser.getIdToken();
+  try {
+    const [listRes, statsRes] = await Promise.all([
+      fetch(`${BACKEND}/outages`, {
+        headers: { Authorization: "Bearer " + token },
+      }),
+      fetch(`${BACKEND}/outages/stats`, {
+        headers: { Authorization: "Bearer " + token },
+      }),
+    ]);
+    if (!listRes.ok || !statsRes.ok) return;
+
+    outageData = await listRes.json();
+    const stats = await statsRes.json();
+
+    // Dashboard summary
+    const badge = document.getElementById("outageBadge");
+    if (badge) badge.textContent = `${stats.total_outages || 0} total`;
+
+    setText("dashTotalOutages", stats.total_outages || "0");
+    setText(
+      "dashTotalDowntime",
+      stats.total_downtime_min
+        ? stats.total_downtime_min.toFixed(1) + " min"
+        : "0 min",
+    );
+    setText(
+      "dashLongestOutage",
+      stats.longest_min ? stats.longest_min.toFixed(1) + " min" : "—",
+    );
+    setText(
+      "dashAvgOutage",
+      stats.avg_duration_min ? stats.avg_duration_min.toFixed(1) + " min" : "—",
+    );
+
+    // Dashboard mini list (last 5)
+    const list = document.getElementById("dashOutageList");
+    if (list) {
+      if (!outageData.length) {
+        list.innerHTML = `<div class="empty-state" style="padding:10px 0;font-size:12px">No power outages recorded ✓</div>`;
+      } else {
+        list.innerHTML = outageData
+          .slice(0, 5)
+          .map((o) => {
+            const start = new Date(o.start_ts * 1000).toLocaleString("en-IN", {
+              dateStyle: "short",
+              timeStyle: "short",
+            });
+            const dur =
+              o.duration < 60
+                ? o.duration + "s"
+                : Math.round(o.duration / 60) + " min";
+            return `<div class="outage-mini-row">
+            <span class="outage-mini-time">${start}</span>
+            <span class="outage-mini-dur">⏱ ${dur}</span>
+            <span class="outage-mini-restored">✓ Restored</span>
+          </div>`;
+          })
+          .join("");
+      }
+    }
+
+    // Statistics page outage table
+    renderOutageTable();
+  } catch (e) {
+    console.error("Outage load error:", e);
+  }
+}
+
+function setText(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val;
+}
+
+function renderOutageTable() {
+  const tbody = document.getElementById("outageTableBody");
+  if (!tbody) return;
+  if (!outageData.length) {
+    tbody.innerHTML = `<tr><td colspan="5" class="empty-td">No power outages recorded — good!</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = outageData
+    .map((o, i) => {
+      const start = new Date(o.start_ts * 1000).toLocaleString("en-IN");
+      const restored = new Date(o.end_ts * 1000).toLocaleString("en-IN");
+      const dur =
+        o.duration < 60
+          ? o.duration + " sec"
+          : Math.floor(o.duration / 60) + " min " + (o.duration % 60) + "s";
+      return `<tr>
+      <td style="color:var(--text-dim)">${i + 1}</td>
+      <td style="color:var(--red);font-family:'Space Mono',monospace;font-size:12px">${start}</td>
+      <td style="color:var(--green);font-family:'Space Mono',monospace;font-size:12px">${restored}</td>
+      <td style="font-weight:700;color:var(--amber)">${dur}</td>
+      <td style="color:var(--blue);font-size:12px">↺ Reset to 0</td>
+    </tr>`;
+    })
+    .join("");
+}
+
+// ===================== ML INFERENCE (CLIENT-SIDE) =====================
+// Simplified inference using the same logic as ml_pipeline.py
+// Works on the localStats array accumulated during the session
+
+function runMLInference() {
+  if (localStats.length < 10) {
+    // Not enough data yet
+    ["mlAnomalyPct", "mlCurrentLoad", "mlBillRisk"].forEach((id) =>
+      setText(id, "—"),
+    );
+    setText("mlAnomalyVerdict", "Need 10+ readings");
+    setText("mlRecommend", "Keep session running...");
+    return;
+  }
+
+  const data = localStats.filter((d) => d.power > 0);
+  if (!data.length) return;
+
+  // ── MODEL 1: Isolation Forest (simplified Z-score proxy)
+  // Real IF uses path length; here we use multi-sigma Z-score as equivalent signal
+  const powers = data.map((d) => d.power);
+  const voltages = data.map((d) => d.voltage);
+  const mean = (arr) => arr.reduce((a, b) => a + b, 0) / arr.length;
+  const std = (arr) => {
+    const m = mean(arr);
+    return Math.sqrt(arr.reduce((a, b) => a + (b - m) ** 2, 0) / arr.length);
+  };
+
+  const pMean = mean(powers);
+  const pStd = std(powers);
+  const vMean = mean(voltages);
+  const vStd = std(voltages);
+
+  const anomalies = data.filter((d) => {
+    const pZ = Math.abs((d.power - pMean) / (pStd + 1e-9));
+    const vZ = Math.abs((d.voltage - vMean) / (vStd + 1e-9));
+    return pZ > 2.5 || vZ > 2.5 || d.voltage < 210 || d.voltage > 250;
+  });
+
+  const anomalyRate = ((anomalies.length / data.length) * 100).toFixed(1);
+  setText("mlAnomalyPct", anomalyRate + "%");
+  setText("mlReadingsCount", data.length);
+  setText("mlFlaggedCount", anomalies.length);
+  setText(
+    "mlAnomalyVerdict",
+    anomalyRate < 3
+      ? "✓ Normal"
+      : anomalyRate < 8
+        ? "⚠ Minor anomalies"
+        : "🚨 High anomaly rate",
+  );
+
+  const verdictEl = document.getElementById("mlAnomalyVerdict");
+  if (verdictEl) {
+    verdictEl.className =
+      anomalyRate < 3
+        ? "green-text"
+        : anomalyRate < 8
+          ? "amber-text"
+          : "red-text";
+  }
+
+  // ── MODEL 2: KMeans (rule-based cluster labels matching the Python model)
+  const latestPower = data[data.length - 1].power;
+  const currentLoad =
+    latestPower < 100
+      ? "Standby"
+      : latestPower < 500
+        ? "Light Load"
+        : latestPower < 2000
+          ? "Medium Load"
+          : "Heavy Load";
+
+  const standbyHrs = data.filter((d) => d.power < 100).length;
+  const lightHrs = data.filter((d) => d.power >= 100 && d.power < 500).length;
+  const heavyHrs = data.filter((d) => d.power >= 500).length;
+
+  setText("mlCurrentLoad", currentLoad);
+  setText("mlStandby", standbyHrs + " rdgs");
+  setText("mlLight", lightHrs + " rdgs");
+  setText("mlHeavy", heavyHrs + " rdgs");
+
+  const clusterEl = document.getElementById("mlCurrentLoad");
+  if (clusterEl) {
+    clusterEl.className =
+      currentLoad === "Standby"
+        ? "ml-score-val green-text"
+        : currentLoad === "Light Load"
+          ? "ml-score-val blue-text"
+          : currentLoad === "Medium Load"
+            ? "ml-score-val amber-text"
+            : "ml-score-val red-text";
+  }
+
+  // ── MODEL 3: Random Forest (extrapolation-based bill predictor)
+  // Project current session's avg power to 30 days
+  const avgPower = mean(powers); // W
+  const hoursInSession = (data.length * 3) / 3600; // session hours (3s intervals)
+  const avgHourlyKwh =
+    hoursInSession > 0
+      ? avgPower / 1000 // kWh per hour at this avg
+      : 0;
+  const projected30d = avgHourlyKwh * 24 * 30; // kWh over 30 days
+
+  // Bill risk: probability proxy based on how far projected is from 300 kWh threshold
+  const riskRaw = Math.min(100, Math.max(0, (projected30d / 300) * 100));
+  const riskLabel = riskRaw < 30 ? "LOW" : riskRaw < 70 ? "MEDIUM" : "HIGH";
+
+  // Calculate projected bill
+  const projBill = calculateBill(projected30d) + getFixedCharge(projected30d);
+
+  setText("mlBillRisk", riskLabel);
+  setText("mlProjected", projected30d.toFixed(1) + " kWh");
+  setText("mlProjectedBill", "₹" + projBill.toFixed(0));
+  setText(
+    "mlRecommend",
+    riskRaw < 30
+      ? "✓ On track — usage is efficient"
+      : riskRaw < 70
+        ? "⚠ Moderate — reduce AC hours"
+        : "🚨 High risk — check heavy loads",
+  );
+
+  const billRiskEl = document.getElementById("mlBillRisk");
+  if (billRiskEl) {
+    billRiskEl.className =
+      riskLabel === "LOW"
+        ? "ml-score-val green-text"
+        : riskLabel === "MEDIUM"
+          ? "ml-score-val amber-text"
+          : "ml-score-val red-text";
+  }
+
+  const recEl = document.getElementById("mlRecommend");
+  if (recEl) {
+    recEl.className =
+      riskRaw < 30 ? "green-text" : riskRaw < 70 ? "amber-text" : "red-text";
+  }
+}
+
+// ===================== HOOK ML INTO PAGE SHOW =====================
+const _origShowPage = window.showPage;
+window.showPage = (page) => {
+  _origShowPage(page);
+  if (page === "statistics") {
+    runMLInference();
+    renderOutageTable();
+  }
+};
+
+// ===================== HOOK INTO INIT =====================
+const _origInitApp = window._initApp || null;
+const _origInit = initApp;
+
+// Patch initApp to also load outages
+function initApp() {
+  initCharts();
+  loadDevices();
+  loadBillingHistory();
+  loadOutages();
+  startLivePoll();
+  setInterval(loadDevices, 10000);
+  setInterval(loadOutages, 30000); // refresh outage data every 30s
+  setInterval(updateDashTime, 1000);
+  renderCalendar();
 }
