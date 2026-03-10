@@ -2,7 +2,7 @@
 # All user data persisted in Firebase Realtime Database
 # Cross-device sync guaranteed — reading from DB on every request
 
-from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi import FastAPI, Depends, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from firebase import get_db
 from auth import verify_user
@@ -438,11 +438,31 @@ def stats_summary(uid=Depends(verify_user)):
 #  OUTAGE LOGGING — Persistent per user
 # ============================================================
 @app.post("/device/outage", tags=["Outage"])
-def log_outage(data: OutagePayload):
+def log_outage(data: OutagePayload, request: Request):
+    """
+    Records a power outage.
+    Called by:
+      - ESP32 on power restore (no auth header)
+      - Frontend when it detects device went offline (Authorization header)
+    """
     db = get_db()
-    owner = db.child("devices").child(data.device_id).child("owner").get()
-    if not owner:
-        raise HTTPException(status_code=404, detail="Device not registered")
+
+    # Try to get uid from auth header (frontend call)
+    uid = None
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        try:
+            from auth import verify_token
+            uid = verify_token(auth_header[7:])
+        except Exception:
+            uid = None
+
+    # Fall back to device owner lookup (ESP call or if token verify failed)
+    if not uid:
+        uid = db.child("devices").child(data.device_id).child("owner").get()
+
+    if not uid:
+        raise HTTPException(status_code=404, detail="Device not registered or auth required")
 
     record = {
         "device_id":    data.device_id,
