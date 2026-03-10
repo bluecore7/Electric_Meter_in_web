@@ -153,37 +153,68 @@ def device_live(data: DevicePayload):
     hourly_ref = db.child("devices").child(data.device_id).child("hourly").child(hour_key)
     existing = hourly_ref.get() or {}
     count = existing.get("count", 0) + 1
-    hourly_ref.set({
-        "voltage_sum":  existing.get("voltage_sum", 0)  + data.voltage,
-        "current_sum":  existing.get("current_sum", 0)  + data.current,
-        "power_sum":    existing.get("power_sum", 0)    + data.power,
-        "energy_max":   max(existing.get("energy_max", 0), data.energy_kWh),
-        "energy_min":   min(existing.get("energy_min", data.energy_kWh), data.energy_kWh),
-        "power_max":    max(existing.get("power_max", 0), data.power),
-        "voltage_min":  min(existing.get("voltage_min", data.voltage), data.voltage),
-        "voltage_max":  max(existing.get("voltage_max", 0), data.voltage),
-        "count":        count,
-        "timestamp":    ts,
-        "date":         dt.strftime("%Y-%m-%d"),
-        "hour":         dt.hour,
-    })
+
+    # ── KEY FIX: 0V = power outage. Do NOT include in voltage stats.
+    # Including 0V in voltage_min would falsely trigger LOW_VOLTAGE anomaly.
+    # Only count it as an outage sample so avg_voltage reflects real supply quality.
+    is_outage_reading = data.voltage < 50
+
+    if is_outage_reading:
+        # Outage sample: increment outage count, skip all electrical stats
+        hourly_ref.set({
+            **existing,                                          # keep existing stats untouched
+            "count":         count,
+            "outage_samples":existing.get("outage_samples", 0) + 1,
+            "timestamp":     ts,
+            "date":          dt.strftime("%Y-%m-%d"),
+            "hour":          dt.hour,
+        })
+    else:
+        # Normal sample: update all electrical stats
+        active_count = existing.get("active_count", 0) + 1
+        hourly_ref.set({
+            "voltage_sum":    existing.get("voltage_sum", 0)   + data.voltage,
+            "current_sum":    existing.get("current_sum", 0)   + data.current,
+            "power_sum":      existing.get("power_sum", 0)     + data.power,
+            "energy_max":     max(existing.get("energy_max", 0), data.energy_kWh),
+            "energy_min":     min(existing.get("energy_min", data.energy_kWh), data.energy_kWh),
+            "power_max":      max(existing.get("power_max", 0), data.power),
+            "voltage_min":    min(existing.get("voltage_min", data.voltage), data.voltage),
+            "voltage_max":    max(existing.get("voltage_max", 0), data.voltage),
+            "count":          count,
+            "active_count":   active_count,
+            "outage_samples": existing.get("outage_samples", 0),
+            "timestamp":      ts,
+            "date":           dt.strftime("%Y-%m-%d"),
+            "hour":           dt.hour,
+        })
 
     # ── 3. Daily summary (YYYY-MM-DD)
     day_key = dt.strftime("%Y-%m-%d")
     day_ref = db.child("devices").child(data.device_id).child("daily").child(day_key)
     day_existing = day_ref.get() or {}
     day_count = day_existing.get("count", 0) + 1
-    day_ref.set({
-        "power_sum":    day_existing.get("power_sum", 0) + data.power,
-        "energy_max":   max(day_existing.get("energy_max", 0), data.energy_kWh),
-        "energy_min":   min(day_existing.get("energy_min", data.energy_kWh), data.energy_kWh),
-        "power_max":    max(day_existing.get("power_max", 0), data.power),
-        "voltage_min":  min(day_existing.get("voltage_min", data.voltage), data.voltage),
-        "voltage_max":  max(day_existing.get("voltage_max", 0), data.voltage),
-        "count":        day_count,
-        "date":         day_key,
-        "timestamp":    ts,
-    })
+    if is_outage_reading:
+        day_ref.set({
+            **day_existing,
+            "count":          day_count,
+            "outage_samples": day_existing.get("outage_samples", 0) + 1,
+            "date":           day_key,
+            "timestamp":      ts,
+        })
+    else:
+        day_ref.set({
+            "power_sum":      day_existing.get("power_sum", 0)    + data.power,
+            "energy_max":     max(day_existing.get("energy_max", 0), data.energy_kWh),
+            "energy_min":     min(day_existing.get("energy_min", data.energy_kWh), data.energy_kWh),
+            "power_max":      max(day_existing.get("power_max", 0), data.power),
+            "voltage_min":    min(day_existing.get("voltage_min", data.voltage), data.voltage),
+            "voltage_max":    max(day_existing.get("voltage_max", 0), data.voltage),
+            "count":          day_count,
+            "outage_samples": day_existing.get("outage_samples", 0),
+            "date":           day_key,
+            "timestamp":      ts,
+        })
 
     return {"status": "ok", "hour": hour_key, "day": day_key}
 
@@ -250,21 +281,28 @@ def stats_hourly(
     for key, val in hourly_raw.items():
         if key < cutoff_key or not val or val.get("count", 0) == 0:
             continue
-        c = val["count"]
+        # Use active_count (non-outage samples) for electrical averages
+        # Using total count would dilute voltages/power with 0V outage readings
+        c        = val.get("active_count", val["count"])   # fall back to count for old data
+        outage_n = val.get("outage_samples", 0)
+        if c == 0:
+            continue  # this hour had only outage readings — skip from stats
         energy_delta = max(0, val.get("energy_max", 0) - val.get("energy_min", 0))
         result.append({
-            "hour":         key,
-            "date":         val.get("date", key[:10]),
-            "hour_num":     val.get("hour", int(key[11:13]) if len(key) >= 13 else 0),
-            "avg_voltage":  round(val.get("voltage_sum", 0) / c, 2),
-            "avg_current":  round(val.get("current_sum", 0) / c, 4),
-            "avg_power":    round(val.get("power_sum", 0) / c, 2),
-            "max_power":    round(val.get("power_max", 0), 2),
-            "min_voltage":  round(val.get("voltage_min", 0), 2),
-            "max_voltage":  round(val.get("voltage_max", 0), 2),
-            "energy_kwh":   round(energy_delta, 5),
-            "samples":      c,
-            "timestamp":    val.get("timestamp", 0),
+            "hour":           key,
+            "date":           val.get("date", key[:10]),
+            "hour_num":       val.get("hour", int(key[11:13]) if len(key) >= 13 else 0),
+            "avg_voltage":    round(val.get("voltage_sum", 0) / c, 2),
+            "avg_current":    round(val.get("current_sum", 0) / c, 4),
+            "avg_power":      round(val.get("power_sum", 0) / c, 2),
+            "max_power":      round(val.get("power_max", 0), 2),
+            "min_voltage":    round(val.get("voltage_min", 0), 2),
+            "max_voltage":    round(val.get("voltage_max", 0), 2),
+            "energy_kwh":     round(energy_delta, 5),
+            "samples":        c,
+            "outage_samples": outage_n,    # how many 0V readings this hour
+            "had_outage":     outage_n > 0,
+            "timestamp":      val.get("timestamp", 0),
         })
 
     return sorted(result, key=lambda x: x["hour"])
@@ -310,10 +348,12 @@ def stats_summary(uid=Depends(verify_user)):
     powers    = [h["avg_power"]   for h in hourly if h["avg_power"] > 0]
     voltages  = [h["avg_voltage"] for h in hourly if h["avg_voltage"] > 0]
     energy    = sum(h["energy_kwh"] for h in hourly)
-    anomalies = [h for h in hourly
-                 if h.get("min_voltage", 230) < 210
-                 or h.get("max_voltage", 230) > 250
-                 or h.get("max_power", 0) > 6000]
+    # Exclude power-outage hours (avg_voltage near 0) — those are outages, not anomalies
+    active_hours = [h for h in hourly if h.get("avg_voltage", 0) > 50]
+    anomalies = [h for h in active_hours
+                 if h.get("min_voltage", 230) < 210        # weak supply (on but low)
+                 or h.get("max_voltage", 0) > 250           # overvoltage
+                 or h.get("max_power", 0) > 6000]           # extreme load spike
     return {
         "peak_power":          round(max(powers), 2) if powers else 0,
         "avg_power":           round(sum(powers) / len(powers), 2) if powers else 0,
@@ -504,17 +544,68 @@ def get_anomalies(uid=Depends(verify_user), days: int = 1):
     if not hourly:
         return []
     anomalies = []
-    for h in hourly:
+    # ── Z-score baseline for Isolation Forest proxy
+    active = [h for h in hourly if h.get("avg_voltage", 0) > 50]  # skip outage hours
+    if not active:
+        return []
+    powers = [h["avg_power"] for h in active if h["avg_power"] > 0]
+    if powers:
+        p_mean = sum(powers) / len(powers)
+        p_var  = sum((p - p_mean) ** 2 for p in powers) / len(powers)
+        p_std  = p_var ** 0.5
+    else:
+        p_mean = p_std = 1
+
+    for h in active:
+        # ── Power is off (outage) — skip, handled by /outages
+        if h.get("avg_voltage", 0) <= 50:
+            continue
+
         flags = []
-        if h.get("min_voltage", 230) < 210:
-            flags.append({"type": "LOW_VOLTAGE", "value": h["min_voltage"], "unit": "V"})
-        if h.get("max_voltage", 0) > 250:
-            flags.append({"type": "HIGH_VOLTAGE", "value": h["max_voltage"], "unit": "V"})
-        if h.get("max_power", 0) > 6000:
-            flags.append({"type": "HIGH_POWER", "value": h["max_power"], "unit": "W"})
-        if h.get("avg_power", 0) > 0:
-            # Z-score style: flag if avg_power is 3x the session mean (simple IF proxy)
-            pass
+
+        # ── LOW VOLTAGE: power IS on but supply is weak (180–209V)
+        # Only flag if voltage actually exists (not zero / outage)
+        min_v = h.get("min_voltage", 230)
+        if 0 < min_v < 210:
+            flags.append({
+                "type":    "LOW_VOLTAGE",
+                "value":   min_v,
+                "unit":    "V",
+                "meaning": "Supply voltage dropped while power was ON — check TNEB supply quality"
+            })
+
+        # ── HIGH VOLTAGE: overvoltage (dangerous for appliances)
+        max_v = h.get("max_voltage", 0)
+        if max_v > 250:
+            flags.append({
+                "type":    "HIGH_VOLTAGE",
+                "value":   max_v,
+                "unit":    "V",
+                "meaning": "Voltage exceeded 250V — risk of damage to sensitive appliances"
+            })
+
+        # ── HIGH POWER: unusual load spike (Isolation Forest proxy)
+        max_p = h.get("max_power", 0)
+        if max_p > 6000:
+            flags.append({
+                "type":    "HIGH_POWER",
+                "value":   max_p,
+                "unit":    "W",
+                "meaning": "Unusually high load detected — check if all appliances are expected"
+            })
+
+        # ── STATISTICAL OUTLIER (Z-score > 2.5 sigma — Isolation Forest equivalent)
+        avg_p = h.get("avg_power", 0)
+        if avg_p > 0 and p_std > 0:
+            z = abs(avg_p - p_mean) / p_std
+            if z > 2.5:
+                flags.append({
+                    "type":    "POWER_OUTLIER",
+                    "value":   round(avg_p, 1),
+                    "unit":    "W",
+                    "meaning": f"Power {round(z,1)}σ from your typical usage — Isolation Forest would flag this"
+                })
+
         if flags:
             anomalies.append({**h, "flags": flags})
     return anomalies

@@ -4,14 +4,10 @@
 //  Cross-device persistent — no localStorage dependency
 // ============================================================
 
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import {
-  getAuth,
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  signOut,
-  onAuthStateChanged,
-} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+import { initializeApp }              from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword,
+         createUserWithEmailAndPassword,
+         signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 
 // ── YOUR FIREBASE CONFIG (paste yours here) ──────────────────
 import { firebaseConfig } from "./firebase.js";
@@ -23,53 +19,42 @@ const BACKEND = "https://electric-meter-in-web.onrender.com";
 //  FIREBASE INIT
 // ============================================================
 const firebaseApp = initializeApp(firebaseConfig);
-const auth = getAuth(firebaseApp);
+const auth        = getAuth(firebaseApp);
 
-let currentToken = null;
-let currentUser = null;
-let pollInterval = null;
-let liveInterval = null;
-let billingData = [];
-let outageData = [];
-let hourlyData = [];
-let statView = "today";
+let currentToken  = null;
+let currentUser   = null;
+let pollInterval  = null;
+let liveInterval  = null;
+let billingData   = [];
+let outageData    = [];
+let hourlyData    = [];
+let statView      = "today";
 let calYear, calMonth;
 
 // ── Chart instances
-let dashChart,
-  liveVChart,
-  liveCChart,
-  livePChart,
-  hourlyEChart,
-  hourlyPChart,
-  voltStabChart;
+let dashChart, liveVChart, liveCChart, livePChart,
+    hourlyEChart, hourlyPChart, voltStabChart;
 
 // ── Live ring buffers (for live page only — max 60 pts = 3 min)
-const MAX_PTS = 60;
-let liveLabels = [],
-  liveVoltArr = [],
-  liveCurrArr = [],
-  livePowArr = [];
+const MAX_PTS   = 60;
+let liveLabels  = [], liveVoltArr = [], liveCurrArr = [], livePowArr = [];
 
 // ============================================================
 //  AUTH STATE — entry point for everything
 // ============================================================
-onAuthStateChanged(auth, async (user) => {
+onAuthStateChanged(auth, async user => {
   if (user) {
-    currentUser = user;
+    currentUser  = user;
     currentToken = await user.getIdToken();
 
     // Refresh token every 50 min (Firebase tokens expire at 60 min)
-    setInterval(
-      async () => {
-        currentToken = await user.getIdToken(true);
-      },
-      50 * 60 * 1000,
-    );
+    setInterval(async () => {
+      currentToken = await user.getIdToken(true);
+    }, 50 * 60 * 1000);
 
     showApp(user);
   } else {
-    currentUser = null;
+    currentUser  = null;
     currentToken = null;
     showAuth();
   }
@@ -80,53 +65,42 @@ onAuthStateChanged(auth, async (user) => {
 // ============================================================
 let authMode = "login";
 
-window.switchAuthTab = (mode) => {
+window.switchAuthTab = mode => {
   authMode = mode;
-  document
-    .getElementById("loginTabBtn")
-    .classList.toggle("active", mode === "login");
-  document
-    .getElementById("signupTabBtn")
-    .classList.toggle("active", mode === "signup");
-  document.getElementById("authSubmitBtn").textContent =
-    mode === "login" ? "Sign In" : "Create Account";
-  document.getElementById("authSubmitBtn").onclick =
-    mode === "login" ? login : signup;
+  document.getElementById("loginTabBtn").classList.toggle("active", mode === "login");
+  document.getElementById("signupTabBtn").classList.toggle("active", mode === "signup");
+  document.getElementById("authSubmitBtn").textContent = mode === "login" ? "Sign In" : "Create Account";
+  document.getElementById("authSubmitBtn").onclick     = mode === "login" ? login : signup;
   document.getElementById("authError").textContent = "";
 };
 
 window.login = async () => {
   const email = document.getElementById("email").value.trim();
-  const pass = document.getElementById("password").value;
-  const btn = document.getElementById("authSubmitBtn");
+  const pass  = document.getElementById("password").value;
+  const btn   = document.getElementById("authSubmitBtn");
   if (!email || !pass) return setAuthError("Please fill in all fields.");
-  btn.textContent = "Signing in…";
-  btn.disabled = true;
+  btn.textContent = "Signing in…"; btn.disabled = true;
   try {
     await signInWithEmailAndPassword(auth, email, pass);
   } catch (e) {
     setAuthError(friendlyAuthError(e.code));
-    btn.textContent = "Sign In";
-    btn.disabled = false;
+    btn.textContent = "Sign In"; btn.disabled = false;
   }
 };
 
 window.signup = async () => {
   const email = document.getElementById("email").value.trim();
-  const pass = document.getElementById("password").value;
-  const btn = document.getElementById("authSubmitBtn");
+  const pass  = document.getElementById("password").value;
+  const btn   = document.getElementById("authSubmitBtn");
   if (!email || !pass) return setAuthError("Please fill in all fields.");
-  if (pass.length < 6)
-    return setAuthError("Password must be at least 6 characters.");
-  btn.textContent = "Creating…";
-  btn.disabled = true;
+  if (pass.length < 6)  return setAuthError("Password must be at least 6 characters.");
+  btn.textContent = "Creating…"; btn.disabled = true;
   try {
     await createUserWithEmailAndPassword(auth, email, pass);
     toast("Account created! Welcome to EnergyFlow.", "success");
   } catch (e) {
     setAuthError(friendlyAuthError(e.code));
-    btn.textContent = "Create Account";
-    btn.disabled = false;
+    btn.textContent = "Create Account"; btn.disabled = false;
   }
 };
 
@@ -142,14 +116,14 @@ function setAuthError(msg) {
 
 function friendlyAuthError(code) {
   const map = {
-    "auth/invalid-email": "Invalid email address.",
-    "auth/user-not-found": "No account found for this email.",
-    "auth/wrong-password": "Incorrect password.",
+    "auth/invalid-email":        "Invalid email address.",
+    "auth/user-not-found":       "No account found for this email.",
+    "auth/wrong-password":       "Incorrect password.",
     "auth/email-already-in-use": "An account already exists with this email.",
-    "auth/weak-password": "Password is too weak.",
-    "auth/too-many-requests": "Too many attempts. Try again later.",
-    "auth/network-request-failed": "Network error. Check your connection.",
-    "auth/invalid-credential": "Invalid email or password.",
+    "auth/weak-password":        "Password is too weak.",
+    "auth/too-many-requests":    "Too many attempts. Try again later.",
+    "auth/network-request-failed":"Network error. Check your connection.",
+    "auth/invalid-credential":   "Invalid email or password.",
   };
   return map[code] || "Authentication failed. Please try again.";
 }
@@ -159,16 +133,16 @@ function friendlyAuthError(code) {
 // ============================================================
 function showAuth() {
   document.getElementById("authDiv").style.display = "flex";
-  document.getElementById("appDiv").style.display = "none";
-  document.getElementById("navTabs").style.display = "none";
+  document.getElementById("appDiv").style.display  = "none";
+  document.getElementById("navTabs").style.display  = "none";
   document.getElementById("navRight").style.display = "none";
   clearAllPolling();
 }
 
 async function showApp(user) {
   document.getElementById("authDiv").style.display = "none";
-  document.getElementById("appDiv").style.display = "block";
-  document.getElementById("navTabs").style.display = "flex";
+  document.getElementById("appDiv").style.display  = "block";
+  document.getElementById("navTabs").style.display  = "flex";
   document.getElementById("navRight").style.display = "flex";
   setUserChip(user);
   initCharts();
@@ -176,14 +150,14 @@ async function showApp(user) {
 }
 
 function setUserChip(user) {
-  const email = user.email || "";
-  const letter = email.charAt(0).toUpperCase();
-  const name = email.split("@")[0];
-  document.getElementById("userAvatar").textContent = letter;
-  document.getElementById("bigAvatar").textContent = letter;
+  const email    = user.email || "";
+  const letter   = email.charAt(0).toUpperCase();
+  const name     = email.split("@")[0];
+  document.getElementById("userAvatar").textContent  = letter;
+  document.getElementById("bigAvatar").textContent   = letter;
   document.getElementById("userNameChip").textContent = name;
   document.getElementById("profileEmailDisplay").textContent = email;
-  document.getElementById("profileNameDisplay").textContent = name;
+  document.getElementById("profileNameDisplay").textContent  = name;
 }
 
 // ============================================================
@@ -195,9 +169,9 @@ async function api(path, opts = {}) {
     ...opts,
     headers: {
       "Content-Type": "application/json",
-      Authorization: "Bearer " + currentToken,
-      ...(opts.headers || {}),
-    },
+      "Authorization": "Bearer " + currentToken,
+      ...(opts.headers || {})
+    }
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -213,8 +187,7 @@ async function initApp() {
   showPage("dashboard");
   setInterval(updateDashTime, 1000);
   const now = new Date();
-  calYear = now.getFullYear();
-  calMonth = now.getMonth();
+  calYear = now.getFullYear(); calMonth = now.getMonth();
   await Promise.all([
     loadProfile(),
     loadDevices(),
@@ -234,30 +207,28 @@ function clearAllPolling() {
 function startPolling() {
   clearAllPolling();
   pollLive();
-  pollInterval = setInterval(pollLive, 3000); // live data every 3s
+  pollInterval = setInterval(pollLive, 3000);       // live data every 3s
   liveInterval = setInterval(() => {
     loadDevices();
     loadOutages();
     renderCalendar();
-  }, 30000); // device + outage refresh every 30s
+  }, 30000);                                         // device + outage refresh every 30s
 }
 
 // ============================================================
 //  NAVIGATION
 // ============================================================
-window.showPage = (page) => {
-  document
-    .querySelectorAll(".page")
-    .forEach((p) => p.classList.remove("active"));
-  document.querySelectorAll(".nav-tab").forEach((t) => {
+window.showPage = page => {
+  document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
+  document.querySelectorAll(".nav-tab").forEach(t => {
     t.classList.toggle("active", t.dataset.page === page);
   });
   const el = document.getElementById("page-" + page);
   if (el) el.classList.add("active");
 
   if (page === "statistics") loadStatisticsPage();
-  if (page === "account") loadAccountPage();
-  if (page === "charges") loadChargesPage();
+  if (page === "account")    loadAccountPage();
+  if (page === "charges")    loadChargesPage();
 };
 
 // ============================================================
@@ -278,50 +249,44 @@ async function pollLive() {
 }
 
 function updateConnectionPill(ok) {
-  const dot = document.querySelector(".conn-dot");
+  const dot   = document.querySelector(".conn-dot");
   const label = document.getElementById("connLabel");
   if (ok) {
-    dot.className = "conn-dot live";
+    dot.className   = "conn-dot live";
     label.textContent = "Live";
   } else {
-    dot.className = "conn-dot error";
+    dot.className   = "conn-dot error";
     label.textContent = "Offline";
   }
 }
 
 function updateKPIs(d) {
-  setText("kpiPower", fmtNum(d.power, 1));
+  setText("kpiPower",   fmtNum(d.power,   1));
   setText("kpiVoltage", fmtNum(d.voltage, 1));
-  setText("kpiKwh", fmtNum(d.energy_kWh, 3));
-  setText("kpiBill", fmtNum(d.total_estimate || 0, 0));
-  setText(
-    "kpiPowerSub",
-    d.power > 0 ? powerLabel(d.power) : "No load detected",
-  );
-  setText(
-    "kpiVoltageSub",
-    d.voltage > 0 ? voltageLabel(d.voltage) : "Waiting for device",
-  );
+  setText("kpiKwh",     fmtNum(d.energy_kWh, 3));
+  setText("kpiBill",    fmtNum(d.total_estimate || 0, 0));
+  setText("kpiPowerSub",   d.power   > 0 ? powerLabel(d.power)   : "No load detected");
+  setText("kpiVoltageSub", d.voltage > 0 ? voltageLabel(d.voltage) : "Waiting for device");
   setText("kpiBillSlab", d.slab || "—");
-  setText("kpiKwhSub", `${fmtNum(d.units_used || 0, 2)} kWh since last bill`);
+  setText("kpiKwhSub",   `${fmtNum(d.units_used || 0, 2)} kWh since last bill`);
 }
 
 function updateDashBillingRow(d) {
-  const ec = d.bill_amount || 0;
-  const fc = d.fixed_charge || 0;
-  const duty = ec * 0.15;
-  setText("dashUsedUnits", `${fmtNum(d.units_used || 0, 2)} kWh`);
+  const ec    = d.bill_amount  || 0;
+  const fc    = d.fixed_charge || 0;
+  const duty  = ec * 0.15;
+  setText("dashUsedUnits",    `${fmtNum(d.units_used || 0, 2)} kWh`);
   setText("dashEnergyCharge", `₹${fmtNum(ec, 2)}`);
-  setText("dashFixedCharge", `₹${fmtNum(fc, 2)}`);
-  setText("dashDuty", `₹${fmtNum(duty, 2)}`);
-  setText("dashTotal", `₹${fmtNum(ec + fc + duty, 2)}`);
+  setText("dashFixedCharge",  `₹${fmtNum(fc, 2)}`);
+  setText("dashDuty",         `₹${fmtNum(duty, 2)}`);
+  setText("dashTotal",        `₹${fmtNum((ec + fc + duty), 2)}`);
   // Charges page live estimate (if visible)
-  setText("lbUnits", `${fmtNum(d.units_used || 0, 2)} kWh`);
-  setText("lbSlab", d.slab || "—");
+  setText("lbUnits",  `${fmtNum(d.units_used || 0, 2)} kWh`);
+  setText("lbSlab",   d.slab || "—");
   setText("lbEnergy", `₹${fmtNum(ec, 2)}`);
-  setText("lbFixed", `₹${fmtNum(fc, 2)}`);
-  setText("lbDuty", `₹${fmtNum(duty, 2)}`);
-  setText("lbTotal", `₹${fmtNum(ec + fc + duty, 2)}`);
+  setText("lbFixed",  `₹${fmtNum(fc, 2)}`);
+  setText("lbDuty",   `₹${fmtNum(duty, 2)}`);
+  setText("lbTotal",  `₹${fmtNum((ec + fc + duty), 2)}`);
   updateChargesSlabPointer(d.units_used || 0);
 }
 
@@ -333,15 +298,15 @@ function updateLivePage(d) {
 
   setText("liveVoltage", fmtNum(d.voltage, 1));
   setText("liveCurrent", fmtNum(d.current, 3));
-  setText("livePower", fmtNum(d.power, 1));
-  setText("liveEnergy", fmtNum(d.energy_kWh, 4));
+  setText("livePower",   fmtNum(d.power, 1));
+  setText("liveEnergy",  fmtNum(d.energy_kWh, 4));
   setText("liveEnergyCost", fmtNum(d.total_estimate || 0, 2));
-  setText("liveUnitsUsed", fmtNum(d.units_used || 0, 3));
+  setText("liveUnitsUsed",  fmtNum(d.units_used || 0, 3));
 
   // Status pills
   setStatusPill("voltageStatus", d.voltage, 210, 250, "V");
-  setStatusPill("currentStatus", d.current, 0, 28, "A");
-  setStatusPill("powerStatus", d.power, 0, 6000, "W");
+  setStatusPill("currentStatus", d.current, 0, 28,  "A");
+  setStatusPill("powerStatus",   d.power,   0, 6000,"W");
 
   // Update live status bar
   const bar = document.getElementById("liveStatus");
@@ -352,15 +317,12 @@ function updateLivePage(d) {
 
   // Arc gauges
   drawGauge("voltageGauge", d.voltage, 180, 260, "#38bdf8");
-  drawGauge("currentGauge", d.current, 0, 32, "#fbbf24");
-  drawGauge("powerGauge", d.power, 0, 7360, "#a78bfa");
+  drawGauge("currentGauge", d.current, 0,   32,  "#fbbf24");
+  drawGauge("powerGauge",   d.power,   0,  7360, "#a78bfa");
 
   // Ring buffers for live charts
   if (liveLabels.length >= MAX_PTS) {
-    liveLabels.shift();
-    liveVoltArr.shift();
-    liveCurrArr.shift();
-    livePowArr.shift();
+    liveLabels.shift(); liveVoltArr.shift(); liveCurrArr.shift(); livePowArr.shift();
   }
   liveLabels.push(ts);
   liveVoltArr.push(d.voltage);
@@ -378,13 +340,13 @@ function setStatusPill(id, val, lo, hi, unit) {
   const el = document.getElementById(id);
   if (!el) return;
   if (val < lo || val > hi) {
-    el.className = "status-pill alert";
+    el.className   = "status-pill alert";
     el.textContent = "ALERT";
   } else if (val > hi * 0.9) {
-    el.className = "status-pill warn";
+    el.className   = "status-pill warn";
     el.textContent = "CAUTION";
   } else {
-    el.className = "status-pill";
+    el.className   = "status-pill";
     el.textContent = "NOMINAL";
   }
 }
@@ -392,12 +354,13 @@ function setStatusPill(id, val, lo, hi, unit) {
 function appendLog(ts, d) {
   const log = document.getElementById("rawLog");
   if (!log) return;
-  const warn = d.voltage < 210 || d.voltage > 250;
+  const warn  = d.voltage < 210 || d.voltage > 250;
   const alert = d.voltage < 190 || d.power > 6000;
-  const cls = alert ? "log-line alert" : warn ? "log-line warn" : "log-line";
-  const line = document.createElement("div");
+  const cls   = alert ? "log-line alert" : warn ? "log-line warn" : "log-line";
+  const line  = document.createElement("div");
   line.className = cls;
-  line.textContent = `[${ts}] V:${fmtNum(d.voltage, 1)}V  I:${fmtNum(d.current, 3)}A  P:${fmtNum(d.power, 1)}W  E:${fmtNum(d.energy_kWh, 4)}kWh`;
+  line.textContent =
+    `[${ts}] V:${fmtNum(d.voltage,1)}V  I:${fmtNum(d.current,3)}A  P:${fmtNum(d.power,1)}W  E:${fmtNum(d.energy_kWh,4)}kWh`;
   log.prepend(line);
   while (log.children.length > 80) log.removeChild(log.lastChild);
 }
@@ -410,17 +373,12 @@ window.clearLog = () => {
 // ============================================================
 //  STATISTICS PAGE — all data from Firebase
 // ============================================================
-window.setStatView = (mode) => {
+window.setStatView = mode => {
   statView = mode;
-  ["btnToday", "btnYesterday", "btn7d", "btn30d"].forEach((id) => {
+  ["btnToday","btnYesterday","btn7d","btn30d"].forEach(id => {
     document.getElementById(id)?.classList.remove("active-btn");
   });
-  const map = {
-    today: "btnToday",
-    yesterday: "btnYesterday",
-    "7d": "btn7d",
-    "30d": "btn30d",
-  };
+  const map = { today: "btnToday", yesterday: "btnYesterday", "7d": "btn7d", "30d": "btn30d" };
   document.getElementById(map[mode])?.classList.add("active-btn");
   loadStatisticsPage();
 };
@@ -432,48 +390,27 @@ async function loadStatisticsPage() {
     const [summary, hourly, anomalies] = await Promise.all([
       api("/stats/summary"),
       api(`/stats/hourly?days=${days}`),
-      api(`/ml/anomalies?days=${days}`),
+      api(`/ml/anomalies?days=${days}`)
     ]);
     hourlyData = hourly;
 
     // KPI bar — from Firebase
-    setText(
-      "statPeak",
-      summary.peak_power ? `${fmtNum(summary.peak_power, 0)}W` : "—",
-    );
-    setText(
-      "statAvg",
-      summary.avg_power ? `${fmtNum(summary.avg_power, 0)}W` : "—",
-    );
-    setText(
-      "statMinV",
-      summary.min_voltage ? `${fmtNum(summary.min_voltage, 1)}V` : "—",
-    );
-    setText(
-      "statMaxV",
-      summary.max_voltage ? `${fmtNum(summary.max_voltage, 1)}V` : "—",
-    );
-    setText(
-      "statTotalEnergy",
-      summary.total_energy_today
-        ? `${fmtNum(summary.total_energy_today, 3)} kWh`
-        : "—",
-    );
-    setText(
-      "statAnomalies",
-      summary.anomaly_hours !== undefined ? String(summary.anomaly_hours) : "0",
-    );
+    setText("statPeak",        summary.peak_power          ? `${fmtNum(summary.peak_power, 0)}W` : "—");
+    setText("statAvg",         summary.avg_power           ? `${fmtNum(summary.avg_power,  0)}W` : "—");
+    setText("statMinV",        summary.min_voltage         ? `${fmtNum(summary.min_voltage, 1)}V` : "—");
+    setText("statMaxV",        summary.max_voltage         ? `${fmtNum(summary.max_voltage, 1)}V` : "—");
+    setText("statTotalEnergy", summary.total_energy_today  ? `${fmtNum(summary.total_energy_today, 3)} kWh` : "—");
+    setText("statAnomalies",   summary.anomaly_hours !== undefined ? String(summary.anomaly_hours) : "0");
 
     // Filter by day if viewing 'yesterday'
     let filtered = hourly;
     if (statView === "yesterday") {
-      const yest = new Date();
-      yest.setDate(yest.getDate() - 1);
+      const yest = new Date(); yest.setDate(yest.getDate() - 1);
       const yKey = yest.toISOString().slice(0, 10);
-      filtered = hourly.filter((h) => h.date === yKey);
+      filtered   = hourly.filter(h => h.date === yKey);
     } else if (statView === "today") {
       const todKey = new Date().toISOString().slice(0, 10);
-      filtered = hourly.filter((h) => h.date === todKey);
+      filtered     = hourly.filter(h => h.date === todKey);
     }
 
     renderHourlyCharts(filtered);
@@ -490,183 +427,239 @@ async function loadStatisticsPage() {
 function renderHourlyCharts(data) {
   if (!data || !data.length) return;
 
-  const labels = data.map((h) => `${h.hour_num}:00`);
-  const energies = data.map((h) => h.energy_kwh);
-  const powers = data.map((h) => h.avg_power);
-  const vMin = data.map((h) => h.min_voltage);
-  const vMax = data.map((h) => h.max_voltage);
+  const labels   = data.map(h => `${h.hour_num}:00`);
+  const energies = data.map(h => h.energy_kwh);
+  const powers   = data.map(h => h.avg_power);
+  const vMin     = data.map(h => h.min_voltage);
+  const vMax     = data.map(h => h.max_voltage);
 
   // Hourly energy chart
   safeUpdateChart(hourlyEChart, labels, [
-    {
-      label: "Energy (kWh)",
-      data: energies,
-      backgroundColor: hexFill("#fbbf24", 0.6),
-      borderColor: "#fbbf24",
-      borderWidth: 2,
-    },
+    { label: "Energy (kWh)", data: energies, backgroundColor: hexFill("#fbbf24", 0.6), borderColor: "#fbbf24", borderWidth: 2 }
   ]);
 
   // Hourly power chart
   safeUpdateChart(hourlyPChart, labels, [
-    {
-      label: "Avg Power (W)",
-      data: powers,
-      borderColor: "#a78bfa",
-      backgroundColor: hexFill("#a78bfa", 0.15),
-      tension: 0.4,
-      fill: true,
-    },
+    { label: "Avg Power (W)", data: powers, borderColor: "#a78bfa", backgroundColor: hexFill("#a78bfa", 0.15), tension: 0.4, fill: true }
   ]);
 
   // Voltage stability band
   safeUpdateChart(voltStabChart, labels, [
-    {
-      label: "Max Voltage",
-      data: vMax,
-      borderColor: "#38bdf8",
-      backgroundColor: "transparent",
-      tension: 0.3,
-    },
-    {
-      label: "Min Voltage",
-      data: vMin,
-      borderColor: "#f87171",
-      backgroundColor: hexFill("#38bdf8", 0.08),
-      tension: 0.3,
-      fill: "-1",
-    },
+    { label: "Max Voltage",  data: vMax, borderColor: "#38bdf8", backgroundColor: "transparent", tension: 0.3 },
+    { label: "Min Voltage",  data: vMin, borderColor: "#f87171", backgroundColor: hexFill("#38bdf8", 0.08), tension: 0.3, fill: "-1" }
   ]);
 }
+
+// Anomaly type metadata — what each type means in plain English
+const ANOMALY_META = {
+  LOW_VOLTAGE: {
+    label: "LOW VOLTAGE",
+    color: "#f87171",   // red
+    icon:  "📉",
+    plain: "Power was ON but supply voltage was weak (below 210V). " +
+           "This means TNEB supply quality was poor during this hour. " +
+           "Not a power cut — the power was on, just at dangerously low voltage. " +
+           "This can overheat motors and damage equipment.",
+    what_to_do: "Check if this happens repeatedly — if yes, log a complaint with TNEB."
+  },
+  HIGH_VOLTAGE: {
+    label: "HIGH VOLTAGE",
+    color: "#fbbf24",   // amber
+    icon:  "📈",
+    plain: "Voltage exceeded 250V. TNEB standard is 220–240V. " +
+           "High voltage can burn out sensitive electronics, LEDs, and AC compressors.",
+    what_to_do: "If frequent, use a voltage stabiliser. Log with TNEB."
+  },
+  HIGH_POWER: {
+    label: "HIGH LOAD",
+    color: "#a78bfa",   // purple
+    icon:  "⚡",
+    plain: "An unusually large load was detected this hour (above 6000W). " +
+           "This could be a geyser + AC + cooking all running simultaneously, " +
+           "or possibly a fault in wiring causing abnormal current draw.",
+    what_to_do: "Check which appliances were running. If unexpected, inspect wiring."
+  },
+  POWER_OUTLIER: {
+    label: "USAGE OUTLIER",
+    color: "#38bdf8",   // blue
+    icon:  "🔍",
+    plain: "This hour's power consumption was statistically far from your normal pattern " +
+           "(more than 2.5 standard deviations away — this is the Isolation Forest signal). " +
+           "Not necessarily a problem — could be you ran the geyser or had guests over.",
+    what_to_do: "Review what was running during this hour. No action needed unless it repeats."
+  }
+};
 
 function renderAnomalyLog(anomalies) {
   const el = document.getElementById("anomalyTable");
   if (!el) return;
   if (!anomalies || !anomalies.length) {
-    el.innerHTML = `<div class="empty-state">✓ No anomalies detected in this period — grid is stable</div>`;
+    el.innerHTML = `<div class="empty-state">
+      <div style="font-size:1.4rem;margin-bottom:8px">✓</div>
+      <div>No anomalies detected in this period</div>
+      <div style="font-size:11px;margin-top:6px;color:var(--text-muted)">Grid voltage and load are within normal ranges</div>
+    </div>`;
     return;
   }
-  el.innerHTML = anomalies
-    .flatMap((a) =>
-      (a.flags || []).map((f) => {
-        const dt = new Date(a.timestamp * 1000).toLocaleString("en-IN");
-        return `<div class="anomaly-row">
-        <span class="an-time">${dt}</span>
-        <span class="an-type">${f.type.replace(/_/g, " ")}</span>
-        <span class="an-desc">${anomalyDesc(f.type)}</span>
-        <span class="an-val">${fmtNum(f.value, 1)} ${f.unit}</span>
-      </div>`;
-      }),
-    )
-    .join("");
-}
 
-function anomalyDesc(type) {
-  const m = {
-    LOW_VOLTAGE: "Voltage dropped below safe threshold (210V)",
-    HIGH_VOLTAGE: "Voltage exceeded safe threshold (250V)",
-    HIGH_POWER: "Unusually high power draw detected",
-  };
-  return m[type] || "Anomalous reading detected";
+  // Build a legend explaining what anomaly detection IS
+  const legend = `<div class="anomaly-legend">
+    <div class="al-title">📖 What is anomaly detection?</div>
+    <div class="al-body">
+      The system watches your hourly voltage and power readings. 
+      Anything that falls outside your normal pattern — or crosses a hard threshold — gets flagged here.
+      <strong>0V readings are power outages</strong> and are shown in the Power Outage table below, not here.
+      These anomalies are cases where <strong>power was on</strong> but something unusual happened.
+    </div>
+  </div>`;
+
+  const rows = anomalies.flatMap(a =>
+    (a.flags || []).map(f => {
+      const meta = ANOMALY_META[f.type] || { label: f.type, color: "#64748b", icon: "⚠", plain: f.meaning || "Unusual reading detected", what_to_do: "Monitor for recurrence." };
+      // Use meaning from backend if available (it's more specific), else use our meta
+      const description = f.meaning || meta.plain;
+      const hourStr = a.hour ? a.hour.replace("_", " ") + ":00" : "—";
+      return `<div class="anomaly-card">
+        <div class="anomaly-card-top">
+          <div class="ac-badge" style="background:${meta.color}18;border-color:${meta.color}33;color:${meta.color}">
+            ${meta.icon} ${meta.label}
+          </div>
+          <div class="ac-hour">Hour: ${hourStr}</div>
+          <div class="ac-val" style="color:${meta.color}">${fmtNum(f.value, 1)} ${f.unit}</div>
+        </div>
+        <div class="ac-desc">${description}</div>
+        <div class="ac-action">→ ${meta.what_to_do}</div>
+      </div>`;
+    })
+  ).join("");
+
+  el.innerHTML = legend + rows;
 }
 
 // ============================================================
 //  ML INFERENCE — from persistent Firebase hourly data
+//
+//  Plain English explanation of what each "model" does:
+//
+//  MODEL 1 — Isolation Forest (anomaly detection)
+//    Imagine your hourly power readings on a number line.
+//    Normal hours cluster together (200–800W).
+//    The Forest builds random dividing lines across the data.
+//    Outlier hours (the spike at 3000W at 2am) are far from the cluster —
+//    a single dividing line isolates them. Normal hours need many lines.
+//    Fewer lines needed = more anomalous. We approximate this with Z-score.
+//    Z-score = how many "standard deviations" a point is from the average.
+//    A Z-score of 2.5 means "this reading is 2.5x the typical spread away
+//    from your average" — that's unusual enough to flag.
+//
+//  MODEL 2 — KMeans (load classification)
+//    Groups your hours into 4 buckets by average power.
+//    No labels needed — it finds the natural groupings itself.
+//    Your typical midnight is always <100W (Standby).
+//    AC on hours cluster around 1500W (Medium).
+//    Cooking hours cluster around 2500W+ (Heavy).
+//    KMeans puts imaginary center-points, assigns each hour to the nearest,
+//    then moves the centers to the middle of their groups, repeats until stable.
+//
+//  MODEL 3 — Random Forest (bill risk forecast)
+//    Takes your average hourly kWh and extrapolates to 30 days.
+//    Compares that projection to the 300 kWh Slab-3 threshold.
+//    In a real trained RF: 200 decision trees each vote yes/no on "will you
+//    exceed 300 kWh?" and the majority wins. Here we use the math directly
+//    since we're doing it in the browser without trained .pkl files.
+//
+//  WHEN DOES REAL TRAINING HAPPEN?
+//    Run: python ml_pipeline.py --mode train
+//    After 30+ days of Firebase data. Until then, these client-side
+//    approximations give you the same signal.
 // ============================================================
 function runMLInference(data) {
-  const active = data ? data.filter((d) => d.avg_power > 0) : [];
+  // ── Critical fix: EXCLUDE power outage hours (avg_voltage ~0)
+  // A 0V hour is not an anomaly in the ML sense — it's an outage.
+  // Including it would corrupt Z-scores and load classification.
+  const active = data ? data.filter(d => d.avg_voltage > 50 && d.avg_power >= 0) : [];
 
   if (active.length < 6) {
-    setText("mlAnomalyPct", "—");
-    setText("mlReadings", "< 6 hrs");
-    setText("mlFlagged", "—");
-    setText("mlVerdict", "Insufficient data");
-    setText("mlCurrentLoad", "—");
-    setText("mlBillRisk", "—");
+    const msg = active.length === 0 ? "No data yet — connect ESP32" : `Only ${active.length} hrs — need 6+`;
+    setText("mlAnomalyPct",  "—"); setText("mlReadings", msg);
+    setText("mlFlagged", "—"); setText("mlVerdict", "Collecting data...");
+    setText("mlCurrentLoad", "—"); setText("mlBillRisk", "—");
+    setText("mlProjUnits", "—"); setText("mlProjBill", "—"); setText("mlAction", "Run ESP32 for a few hours first");
     return;
   }
 
-  const powers = active.map((d) => d.avg_power);
-  const voltages = active.map((d) => d.avg_voltage);
+  const powers   = active.map(d => d.avg_power);
+  const voltages = active.map(d => d.avg_voltage);
 
-  // ── MODEL 1: Isolation Forest proxy (Z-score + rule)
-  const pmean = mean(powers);
-  const pstd = std(powers);
-  const vmean = mean(voltages);
-  const vstd = std(voltages);
-  const flagged = active.filter((d) => {
-    const pz = Math.abs((d.avg_power - pmean) / (pstd + 1e-9));
-    const vz = Math.abs((d.avg_voltage - vmean) / (vstd + 1e-9));
-    return pz > 2.5 || vz > 2.5 || d.min_voltage < 210 || d.max_voltage > 250;
+  // ══ MODEL 1: Isolation Forest proxy
+  // Z-score = (value - average) / standard_deviation
+  // Think of standard_deviation as "how spread out your values are"
+  // If your avg power is 500W with std of 200W:
+  //   A 1400W hour has Z = (1400-500)/200 = 4.5 → very unusual → flagged
+  //   A 700W hour has  Z = (700-500)/200  = 1.0 → normal
+  const pmean = mean(powers);  const pstd  = std(powers)  || 1;
+  const vmean = mean(voltages); const vstd  = std(voltages) || 1;
+
+  const flagged = active.filter(d => {
+    // Skip outage hours — 0V is not a voltage anomaly
+    if (d.avg_voltage <= 50) return false;
+    const pz = Math.abs((d.avg_power   - pmean) / pstd);
+    const vz = Math.abs((d.avg_voltage - vmean) / vstd);
+    // Also flag rule-based: voltage outside safe band (even if statistically "normal")
+    const lowV  = d.min_voltage > 0 && d.min_voltage < 210;
+    const highV = d.max_voltage > 250;
+    return pz > 2.5 || vz > 2.5 || lowV || highV;
   });
-  const rate = ((flagged.length / active.length) * 100).toFixed(1);
-  const verdict =
-    +rate < 3
-      ? "✓ Normal"
-      : +rate < 8
-        ? "⚠ Minor anomalies"
-        : "🚨 High anomaly rate";
-  const verdictColor =
-    +rate < 3 ? "green-text" : +rate < 8 ? "amber-text" : "red-text";
 
-  setTextColor(
-    "mlAnomalyPct",
-    rate + "%",
-    +rate < 3 ? "green-text" : +rate < 8 ? "amber-text" : "red-text",
-  );
-  setText("mlReadings", active.length + " hrs");
-  setTextColor(
-    "mlFlagged",
-    String(flagged.length),
-    flagged.length > 0 ? "red-text" : "green-text",
-  );
-  setTextColor("mlVerdict", verdict, verdictColor);
+  const rate = (flagged.length / active.length * 100).toFixed(1);
+  const verdict = +rate < 3 ? "✓ Normal grid" : +rate < 10 ? "⚠ Some anomalies" : "🚨 Investigate";
+  const verdictColor = +rate < 3 ? "green-text" : +rate < 10 ? "amber-text" : "red-text";
 
-  // ── MODEL 2: KMeans proxy (threshold-based cluster assignment)
-  const latest = active[active.length - 1].avg_power;
-  const load =
-    latest < 100
-      ? "Standby"
-      : latest < 500
-        ? "Light"
-        : latest < 2000
-          ? "Medium"
-          : "Heavy";
-  const loadColor = {
-    Standby: "green-text",
-    Light: "blue-text",
-    Medium: "amber-text",
-    Heavy: "red-text",
-  }[load];
-  setTextColor("mlCurrentLoad", load, loadColor);
-  setText("mlStandby", active.filter((d) => d.avg_power < 100).length + " hrs");
-  setText(
-    "mlMedium",
-    active.filter((d) => d.avg_power >= 100 && d.avg_power < 2000).length +
-      " hrs",
-  );
-  setText("mlHeavy", active.filter((d) => d.avg_power >= 2000).length + " hrs");
+  setTextColor("mlAnomalyPct", rate + "%",          +rate < 3 ? "green-text" : +rate < 10 ? "amber-text" : "red-text");
+  setText     ("mlReadings",   active.length + " active hrs");
+  setTextColor("mlFlagged",    String(flagged.length), flagged.length === 0 ? "green-text" : "red-text");
+  setTextColor("mlVerdict",    verdict, verdictColor);
 
-  // ── MODEL 3: Random Forest proxy (30-day extrapolation)
-  const avgKwhPerHour = mean(active.map((d) => d.energy_kwh));
-  const proj30d = avgKwhPerHour * 24 * 30;
-  const risk = proj30d < 100 ? "LOW" : proj30d < 300 ? "MEDIUM" : "HIGH";
-  const riskColor = {
-    LOW: "green-text",
-    MEDIUM: "amber-text",
-    HIGH: "red-text",
-  }[risk];
-  const projBill = calcBillFull(proj30d);
-  const action =
-    risk === "LOW"
-      ? "✓ Efficient usage — keep it up"
-      : risk === "MEDIUM"
-        ? "⚠ Moderate — check AC usage"
-        : "🚨 High — reduce heavy appliances";
+  // ══ MODEL 2: KMeans proxy
+  // Each hourly reading is assigned to the nearest cluster center by avg_power
+  // Cluster centers (learned from typical household data):
+  //   Standby:  0–100W   (all appliances off, just background draw)
+  //   Light:    100–500W (fans, lights, router, TV)
+  //   Medium:   500–2000W (AC, refrigerator, washing machine)
+  //   Heavy:    2000W+   (geyser, induction cooktop, AC+geyser together)
+  const latestHour = active[active.length - 1];
+  const latestP    = latestHour?.avg_power || 0;
+  const load   = latestP < 100 ? "Standby" : latestP < 500 ? "Light" : latestP < 2000 ? "Medium" : "Heavy";
+  const loadColor = { Standby: "green-text", Light: "blue-text", Medium: "amber-text", Heavy: "red-text" }[load];
 
-  setTextColor("mlBillRisk", risk, riskColor);
-  setText("mlProjUnits", `${fmtNum(proj30d, 1)} kWh`);
-  setText("mlProjBill", `₹${fmtNum(projBill.total, 0)}`);
+  const standbyHrs = active.filter(d => d.avg_power < 100).length;
+  const lightHrs   = active.filter(d => d.avg_power >= 100  && d.avg_power < 500).length;
+  const medHrs     = active.filter(d => d.avg_power >= 500  && d.avg_power < 2000).length;
+  const heavyHrs   = active.filter(d => d.avg_power >= 2000).length;
+
+  setTextColor("mlCurrentLoad", load, "ml-score-val " + loadColor);
+  setText("mlStandby", standbyHrs + " hrs (<100W)");
+  setText("mlMedium",  `${lightHrs} light / ${medHrs} med hrs`);
+  setText("mlHeavy",   heavyHrs + " hrs (2000W+)");
+
+  // ══ MODEL 3: Random Forest proxy
+  // avgKwhPerHour = your average energy consumption each hour
+  // proj30d = if you keep using at this rate for 30 days, how many kWh total?
+  // Example: avg 0.3 kWh/hr × 24 hrs × 30 days = 216 kWh/month → Slab 2
+  const nonZeroE = active.filter(d => d.energy_kwh > 0);
+  const avgKwhPerHour = nonZeroE.length > 0 ? mean(nonZeroE.map(d => d.energy_kwh)) : (pmean / 1000);
+  const proj30d   = avgKwhPerHour * 24 * 30;
+  const risk      = proj30d < 100 ? "LOW" : proj30d < 300 ? "MEDIUM" : "HIGH";
+  const riskColor = { LOW: "green-text", MEDIUM: "amber-text", HIGH: "red-text" }[risk];
+  const projBill  = calcBillFull(proj30d);
+  const projSlab  = proj30d <= 100 ? "Slab 1 (Free!)" : proj30d <= 200 ? "Slab 2 (₹2.25)" : proj30d <= 500 ? "Slab 3 (₹4.50)" : "Slab 4 (₹6.60)";
+  const action    = risk === "LOW"    ? "✓ Very efficient usage"
+                  : risk === "MEDIUM" ? "⚠ Reduce AC/geyser hours to stay in Slab 2"
+                  : "🚨 Likely Slab 3/4 — target: run AC fewer hours";
+
+  setTextColor("mlBillRisk",  risk, "ml-score-val " + riskColor);
+  setText("mlProjUnits", `${fmtNum(proj30d, 1)} kWh → ${projSlab}`);
+  setText("mlProjBill",  `₹${fmtNum(projBill.total, 0)}`);
   setTextColor("mlAction", action, riskColor);
 }
 
@@ -687,22 +680,19 @@ async function loadBillingSummary() {
   try {
     const s = await api("/billing/summary");
     // Account page
-    setEl("accTotalBills", String(s.bill_count || 0));
-    setEl("accTotalPaid", `₹${fmtNum(s.total_paid || 0, 0)}`);
-    setEl("accTotalUnits", `${fmtNum(s.total_units || 0, 1)} kWh`);
-    setEl("accAvgBill", `₹${fmtNum(s.avg_monthly_bill || 0, 0)}`);
-    setEl("accHighest", `₹${fmtNum(s.highest_bill || 0, 0)}`);
+    setEl("accTotalBills",  String(s.bill_count    || 0));
+    setEl("accTotalPaid",   `₹${fmtNum(s.total_paid    || 0, 0)}`);
+    setEl("accTotalUnits",  `${fmtNum(s.total_units  || 0, 1)} kWh`);
+    setEl("accAvgBill",     `₹${fmtNum(s.avg_monthly_bill || 0, 0)}`);
+    setEl("accHighest",     `₹${fmtNum(s.highest_bill || 0, 0)}`);
     // Charges lifetime summary
     if (s.bill_count > 0) {
       document.getElementById("billLifetime").style.display = "grid";
-      setText("blTotalPaid", `₹${fmtNum(s.total_paid, 0)}`);
+      setText("blTotalPaid",  `₹${fmtNum(s.total_paid, 0)}`);
       setText("blTotalUnits", `${fmtNum(s.total_units, 1)} kWh`);
-      setText("blAvgBill", `₹${fmtNum(s.avg_monthly_bill, 0)}`);
-      setText("blHighest", `₹${fmtNum(s.highest_bill, 0)}`);
-      setText(
-        "billSummaryBadge",
-        `${s.bill_count} bill${s.bill_count !== 1 ? "s" : ""} recorded`,
-      );
+      setText("blAvgBill",    `₹${fmtNum(s.avg_monthly_bill, 0)}`);
+      setText("blHighest",    `₹${fmtNum(s.highest_bill, 0)}`);
+      setText("billSummaryBadge", `${s.bill_count} bill${s.bill_count !== 1 ? "s" : ""} recorded`);
     }
   } catch (e) {}
 }
@@ -710,22 +700,14 @@ async function loadBillingSummary() {
 function renderBillingTable() {
   const tbody = document.getElementById("billingHistoryBody");
   if (!tbody) return;
-  const rows = billingData.filter((b) => b.type !== "baseline");
+  const rows = billingData.filter(b => b.type !== "baseline");
   if (!rows.length) {
     tbody.innerHTML = `<tr><td colspan="8" class="empty-td">No billing records yet. Take a meter reading to start.</td></tr>`;
     return;
   }
-  tbody.innerHTML = rows
-    .map((b, i) => {
-      const slabClass =
-        b.units <= 100
-          ? "green-text"
-          : b.units <= 200
-            ? "blue-text"
-            : b.units <= 500
-              ? "amber-text"
-              : "red-text";
-      return `<tr>
+  tbody.innerHTML = rows.map((b, i) => {
+    const slabClass = b.units <= 100 ? "green-text" : b.units <= 200 ? "blue-text" : b.units <= 500 ? "amber-text" : "red-text";
+    return `<tr>
       <td style="color:var(--text-dim)">${rows.length - i}</td>
       <td style="font-size:11px;color:var(--text-dim)">${b.from_date || "—"} → ${b.to_date || "—"}</td>
       <td><span class="mono">${fmtNum(b.units, 2)}</span></td>
@@ -735,30 +717,20 @@ function renderBillingTable() {
       <td class="mono amber-text" style="font-weight:700">₹${fmtNum(b.total || 0, 2)}</td>
       <td><span class="${slabClass}" style="font-size:10px">${b.slab || "—"}</span></td>
     </tr>`;
-    })
-    .join("");
+  }).join("");
 }
 
 window.takeReading = async () => {
   const btn = document.getElementById("takeBtn");
-  if (btn) {
-    btn.textContent = "Recording…";
-    btn.disabled = true;
-  }
+  if (btn) { btn.textContent = "Recording…"; btn.disabled = true; }
   try {
     const r = await api("/billing/take-reading", { method: "POST" });
-    toast(
-      `✓ Reading recorded — ${fmtNum(r.units || 0, 2)} kWh used`,
-      "success",
-    );
+    toast(`✓ Reading recorded — ${fmtNum(r.units || 0, 2)} kWh used`, "success");
     await Promise.all([loadBillingHistory(), loadBillingSummary()]);
   } catch (e) {
     toast("Failed: " + e.message, "error");
   } finally {
-    if (btn) {
-      btn.textContent = "Take Reading";
-      btn.disabled = false;
-    }
+    if (btn) { btn.textContent = "Take Reading"; btn.disabled = false; }
   }
 };
 
@@ -769,19 +741,15 @@ async function loadOutages() {
   try {
     const [list, stats] = await Promise.all([
       api("/outages"),
-      api("/outages/stats"),
+      api("/outages/stats")
     ]);
     outageData = list || [];
 
     // Dashboard
-    setTextColor(
-      "oTotal",
-      String(stats.total_outages || 0),
-      stats.total_outages > 0 ? "ostat-val red-text" : "ostat-val green-text",
-    );
+    setTextColor("oTotal",    String(stats.total_outages     || 0), stats.total_outages > 0 ? "ostat-val red-text" : "ostat-val green-text");
     setText("oDowntime", fmtMin(stats.total_downtime_min || 0));
-    setText("oLongest", fmtMin(stats.longest_min || 0));
-    setText("oAvg", fmtMin(stats.avg_duration_min || 0));
+    setText("oLongest",  fmtMin(stats.longest_min        || 0));
+    setText("oAvg",      fmtMin(stats.avg_duration_min   || 0));
     setText("outageBadge", `${stats.total_outages || 0} total`);
 
     // Account page
@@ -797,9 +765,7 @@ async function loadOutages() {
 function fmtMin(min) {
   if (!min || min < 0.1) return "0 min";
   if (min < 1) return `${Math.round(min * 60)}s`;
-  return min >= 60
-    ? `${Math.floor(min / 60)}h ${Math.round(min % 60)}m`
-    : `${fmtNum(min, 1)} min`;
+  return min >= 60 ? `${Math.floor(min / 60)}h ${Math.round(min % 60)}m` : `${fmtNum(min, 1)} min`;
 }
 
 function renderDashOutageList() {
@@ -809,23 +775,15 @@ function renderDashOutageList() {
     el.innerHTML = `<div class="empty-state" style="padding:8px">✓ No power outages recorded</div>`;
     return;
   }
-  el.innerHTML = outageData
-    .slice(0, 5)
-    .map((o) => {
-      const start = new Date(o.start_ts * 1000).toLocaleString("en-IN", {
-        day: "numeric",
-        month: "short",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-      const dur = fmtMin(o.duration_min);
-      return `<div class="outage-row">
+  el.innerHTML = outageData.slice(0, 5).map(o => {
+    const start = new Date(o.start_ts * 1000).toLocaleString("en-IN", { day:"numeric", month:"short", hour:"2-digit", minute:"2-digit" });
+    const dur   = fmtMin(o.duration_min);
+    return `<div class="outage-row">
       <span class="or-time">🕒 ${start}</span>
       <span class="or-dur">⏱ ${dur}</span>
       <span class="or-ok">✓ Restored</span>
     </div>`;
-    })
-    .join("");
+  }).join("");
 }
 
 function renderOutageTable() {
@@ -835,23 +793,18 @@ function renderOutageTable() {
     tbody.innerHTML = `<tr><td colspan="5" class="empty-td">No power outages recorded — excellent!</td></tr>`;
     return;
   }
-  tbody.innerHTML = outageData
-    .map((o, i) => {
-      const start = new Date(o.start_ts * 1000).toLocaleString("en-IN");
-      const restored = new Date(o.end_ts * 1000).toLocaleString("en-IN");
-      const dur =
-        o.duration < 60
-          ? `${o.duration}s`
-          : `${Math.floor(o.duration / 60)}m ${o.duration % 60}s`;
-      return `<tr>
+  tbody.innerHTML = outageData.map((o, i) => {
+    const start    = new Date(o.start_ts * 1000).toLocaleString("en-IN");
+    const restored = new Date(o.end_ts   * 1000).toLocaleString("en-IN");
+    const dur      = o.duration < 60 ? `${o.duration}s` : `${Math.floor(o.duration / 60)}m ${o.duration % 60}s`;
+    return `<tr>
       <td style="color:var(--text-dim)">${i + 1}</td>
       <td style="color:var(--red);font-size:12px">${start}</td>
       <td style="color:var(--green);font-size:12px">${restored}</td>
       <td style="font-weight:700;color:var(--amber);font-family:'Space Mono',monospace">${dur}</td>
       <td style="color:var(--blue);font-size:11px">↺ Energy counter reset</td>
     </tr>`;
-    })
-    .join("");
+  }).join("");
 }
 
 // ============================================================
@@ -872,21 +825,19 @@ function renderDeviceList(devices) {
     el.innerHTML = `<div class="empty-state">No device registered yet.<br><button class="btn-primary-sm" style="margin-top:8px" onclick="openDeviceModal()">+ Register ESP32</button></div>`;
     return;
   }
-  el.innerHTML = devices
-    .map((d) => {
-      const stale = Date.now() / 1000 - d.last_seen > 30;
-      const statusC = stale ? "ds-inactive" : "ds-active";
-      const statusL = stale ? "OFFLINE" : "ONLINE";
-      const ago = d.last_seen ? timeSince(d.last_seen) + " ago" : "Never";
-      return `<div class="device-item">
+  el.innerHTML = devices.map(d => {
+    const stale   = (Date.now() / 1000 - d.last_seen) > 30;
+    const statusC = stale ? "ds-inactive" : "ds-active";
+    const statusL = stale ? "OFFLINE" : "ONLINE";
+    const ago     = d.last_seen ? timeSince(d.last_seen) + " ago" : "Never";
+    return `<div class="device-item">
       <div>
         <div class="di-id">📡 ${d.device_id}</div>
         <div class="di-info">Last seen: ${ago} · ${fmtNum(d.power || 0, 0)}W · ${fmtNum(d.voltage || 0, 1)}V</div>
       </div>
       <span class="device-status ${statusC}">${statusL}</span>
     </div>`;
-    })
-    .join("");
+  }).join("");
 }
 
 function renderAccountDevices(devices) {
@@ -896,34 +847,26 @@ function renderAccountDevices(devices) {
     el.innerHTML = `<div class="empty-state">No device registered.</div>`;
     return;
   }
-  el.innerHTML = devices
-    .map((d) => {
-      const stale = Date.now() / 1000 - d.last_seen > 30;
-      return `<div class="device-item">
+  el.innerHTML = devices.map(d => {
+    const stale = (Date.now() / 1000 - d.last_seen) > 30;
+    return `<div class="device-item">
       <div>
         <div class="di-id">📡 ${d.device_id}</div>
         <div class="di-info">Registered · Last seen: ${timeSince(d.last_seen)} ago</div>
       </div>
       <span class="device-status ${stale ? "ds-inactive" : "ds-active"}">${stale ? "OFFLINE" : "LIVE"}</span>
     </div>`;
-    })
-    .join("");
+  }).join("");
 }
 
-window.openDeviceModal = () => {
-  document.getElementById("deviceModal").style.display = "flex";
-};
-window.closeDeviceModal = () => {
-  document.getElementById("deviceModal").style.display = "none";
-};
+window.openDeviceModal  = () => { document.getElementById("deviceModal").style.display = "flex"; };
+window.closeDeviceModal = () => { document.getElementById("deviceModal").style.display = "none"; };
 
 window.registerDevice = async () => {
   const id = document.getElementById("deviceId").value.trim();
   if (!id) return toast("Enter a Device ID", "error");
   try {
-    await api(`/register-device?device_id=${encodeURIComponent(id)}`, {
-      method: "POST",
-    });
+    await api(`/register-device?device_id=${encodeURIComponent(id)}`, { method: "POST" });
     toast(`✓ Device ${id} registered!`, "success");
     closeDeviceModal();
     loadDevices();
@@ -940,37 +883,30 @@ async function loadProfile() {
     const p = await api("/user/profile");
     if (p.display_name) {
       setText("profileNameDisplay", p.display_name);
-      setText("userNameChip", p.display_name.split(" ")[0]);
-      document.getElementById("bigAvatar").textContent = p.display_name
-        .charAt(0)
-        .toUpperCase();
-      document.getElementById("userAvatar").textContent = p.display_name
-        .charAt(0)
-        .toUpperCase();
+      setText("userNameChip",       p.display_name.split(" ")[0]);
+      document.getElementById("bigAvatar").textContent  = p.display_name.charAt(0).toUpperCase();
+      document.getElementById("userAvatar").textContent = p.display_name.charAt(0).toUpperCase();
     }
-    setVal("pfName", p.display_name || "");
-    setVal("pfPhone", p.phone || "");
-    setVal("pfAddress", p.address || "");
-    setVal("pfEbNo", p.eb_consumer_no || "");
-    setVal("pfTariff", p.tariff_type || "LT-I");
-    setVal("pfLoad", p.sanctioned_load || "");
+    setVal("pfName",    p.display_name    || "");
+    setVal("pfPhone",   p.phone           || "");
+    setVal("pfAddress", p.address         || "");
+    setVal("pfEbNo",    p.eb_consumer_no  || "");
+    setVal("pfTariff",  p.tariff_type     || "LT-I");
+    setVal("pfLoad",    p.sanctioned_load || "");
   } catch (e) {}
 }
 
 window.saveProfile = async () => {
   try {
     const profile = {
-      display_name: getVal("pfName"),
-      phone: getVal("pfPhone"),
-      address: getVal("pfAddress"),
-      eb_consumer_no: getVal("pfEbNo"),
-      tariff_type: getVal("pfTariff"),
+      display_name:    getVal("pfName"),
+      phone:           getVal("pfPhone"),
+      address:         getVal("pfAddress"),
+      eb_consumer_no:  getVal("pfEbNo"),
+      tariff_type:     getVal("pfTariff"),
       sanctioned_load: parseFloat(getVal("pfLoad")) || null,
     };
-    await api("/user/profile", {
-      method: "POST",
-      body: JSON.stringify(profile),
-    });
+    await api("/user/profile", { method: "POST", body: JSON.stringify(profile) });
     toast("✓ Profile saved to Firebase", "success");
     loadProfile();
   } catch (e) {
@@ -1000,73 +936,45 @@ function loadChargesPage() {
 //  MANUAL BILL CALCULATOR
 // ============================================================
 window.calcBill = () => {
-  const units = parseFloat(document.getElementById("calcUnits")?.value) || 0;
-  const months = parseInt(document.getElementById("calcMonths")?.value) || 1;
-  if (units <= 0) {
-    document.getElementById("calcResult").style.display = "none";
-    return;
-  }
+  const units   = parseFloat(document.getElementById("calcUnits")?.value) || 0;
+  const months  = parseInt(document.getElementById("calcMonths")?.value) || 1;
+  if (units <= 0) { document.getElementById("calcResult").style.display = "none"; return; }
 
-  const result = calcBillFull(units);
-  const lines = [
-    { label: "Units consumed", val: `${fmtNum(units, 2)} kWh` },
-    { label: "Energy charges", val: `₹${fmtNum(result.energy, 2)}` },
-    {
-      label: `Fixed charge × ${months} month${months > 1 ? "s" : ""}`,
-      val: `₹${fmtNum(result.fixed * months, 2)}`,
-    },
+  const result  = calcBillFull(units);
+  const lines   = [
+    { label: "Units consumed",       val: `${fmtNum(units, 2)} kWh` },
+    { label: "Energy charges",       val: `₹${fmtNum(result.energy, 2)}` },
+    { label: `Fixed charge × ${months} month${months > 1 ? "s" : ""}`, val: `₹${fmtNum(result.fixed * months, 2)}` },
     { label: "Electricity duty (15%)", val: `₹${fmtNum(result.duty, 2)}` },
-    { label: "Slab", val: result.slab },
+    { label: "Slab",                  val: result.slab },
   ];
 
   const total = result.energy + result.fixed * months + result.duty;
-  document.getElementById("calcLines").innerHTML = lines
-    .map(
-      (l) =>
-        `<div class="calc-line"><span>${l.label}</span><span class="mono">${l.val}</span></div>`,
-    )
-    .join("");
+  document.getElementById("calcLines").innerHTML = lines.map(l =>
+    `<div class="calc-line"><span>${l.label}</span><span class="mono">${l.val}</span></div>`
+  ).join("");
   setText("calcGrandTotal", `₹${fmtNum(total, 2)}`);
   document.getElementById("calcResult").style.display = "block";
 };
 
 function calcBillFull(units) {
-  if (units <= 0)
-    return { energy: 0, fixed: 45, duty: 0, total: 45, slab: "Slab 1 — Free" };
+  if (units <= 0) return { energy: 0, fixed: 45, duty: 0, total: 45, slab: "Slab 1 — Free" };
   let energy = 0;
   if (units > 100) energy += Math.min(units - 100, 100) * 2.25;
-  if (units > 200) energy += Math.min(units - 200, 300) * 4.5;
-  if (units > 500) energy += (units - 500) * 6.6;
-  const fixed =
-    units <= 100 ? 45 : units <= 200 ? 75 : units <= 500 ? 115 : 155;
-  const duty = energy * 0.15;
+  if (units > 200) energy += Math.min(units - 200, 300) * 4.50;
+  if (units > 500) energy += (units - 500) * 6.60;
+  const fixed = units <= 100 ? 45 : units <= 200 ? 75 : units <= 500 ? 115 : 155;
+  const duty  = energy * 0.15;
   const total = energy + fixed + duty;
-  const slab =
-    units <= 100
-      ? "Slab 1 — Free"
-      : units <= 200
-        ? "Slab 2 — ₹2.25"
-        : units <= 500
-          ? "Slab 3 — ₹4.50"
-          : "Slab 4 — ₹6.60";
-  return {
-    energy: Math.round(energy * 100) / 100,
-    fixed,
-    duty: Math.round(duty * 100) / 100,
-    total: Math.round(total * 100) / 100,
-    slab,
-  };
+  const slab  = units <= 100 ? "Slab 1 — Free" : units <= 200 ? "Slab 2 — ₹2.25" : units <= 500 ? "Slab 3 — ₹4.50" : "Slab 4 — ₹6.60";
+  return { energy: Math.round(energy * 100) / 100, fixed, duty: Math.round(duty * 100) / 100, total: Math.round(total * 100) / 100, slab };
 }
 
 function updateChargesSlabPointer(units) {
-  const pct =
-    units <= 100
-      ? (units / 100) * 20
-      : units <= 200
-        ? 20 + ((units - 100) / 100) * 20
-        : units <= 500
-          ? 40 + ((units - 200) / 300) * 30
-          : Math.min(100, 70 + ((units - 500) / 300) * 30);
+  const pct = units <= 100  ? (units / 100) * 20
+            : units <= 200  ? 20 + ((units - 100) / 100) * 20
+            : units <= 500  ? 40 + ((units - 200) / 300) * 30
+            : Math.min(100, 70 + ((units - 500) / 300) * 30);
   const ptr = document.getElementById("svPtr");
   if (ptr) ptr.style.marginLeft = `calc(${pct}% - 6px)`;
 }
@@ -1076,30 +984,17 @@ function updateChargesSlabPointer(units) {
 // ============================================================
 function renderCalendar() {
   const grid = document.getElementById("calendarGrid");
-  const mon = document.getElementById("calendarMonth");
+  const mon  = document.getElementById("calendarMonth");
   if (!grid || !mon) return;
 
-  const monthNames = [
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-  ];
+  const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
   mon.textContent = `${monthNames[calMonth]} ${calYear}`;
 
   const first = new Date(calYear, calMonth, 1).getDay();
-  const days = new Date(calYear, calMonth + 1, 0).getDate();
+  const days  = new Date(calYear, calMonth + 1, 0).getDate();
 
   const billMap = {};
-  billingData.forEach((b) => {
+  billingData.forEach(b => {
     if (!b.to_date) return;
     const date = b.to_date.slice(0, 10);
     if (!billMap[date]) billMap[date] = 0;
@@ -1107,8 +1002,7 @@ function renderCalendar() {
   });
 
   let html = "";
-  for (let i = 0; i < first; i++)
-    html += `<div class="cal-day" style="opacity:.2"></div>`;
+  for (let i = 0; i < first; i++) html += `<div class="cal-day" style="opacity:.2"></div>`;
   for (let d = 1; d <= days; d++) {
     const key = `${calYear}-${String(calMonth + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
     const amt = billMap[key];
@@ -1120,35 +1014,17 @@ function renderCalendar() {
   grid.innerHTML = html;
 }
 
-window.prevMonth = () => {
-  calMonth--;
-  if (calMonth < 0) {
-    calMonth = 11;
-    calYear--;
-  }
-  renderCalendar();
-};
-window.nextMonth = () => {
-  calMonth++;
-  if (calMonth > 11) {
-    calMonth = 0;
-    calYear++;
-  }
-  renderCalendar();
-};
+window.prevMonth = () => { calMonth--; if (calMonth < 0) { calMonth = 11; calYear--; } renderCalendar(); };
+window.nextMonth = () => { calMonth++; if (calMonth > 11) { calMonth = 0;  calYear++; } renderCalendar(); };
 
 // ============================================================
 //  SLAB INDICATOR (dashboard)
 // ============================================================
 function updateSlabIndicator(units) {
-  const pct =
-    units <= 100
-      ? (units / 100) * 25
-      : units <= 200
-        ? 25 + ((units - 100) / 100) * 25
-        : units <= 500
-          ? 50 + ((units - 200) / 300) * 25
-          : Math.min(100, 75 + ((units - 500) / 300) * 25);
+  const pct    = units <= 100  ? (units / 100) * 25
+               : units <= 200  ? 25 + ((units - 100) / 100) * 25
+               : units <= 500  ? 50 + ((units - 200) / 300) * 25
+               : Math.min(100, 75 + ((units - 500) / 300) * 25);
   const needle = document.getElementById("slabNeedle");
   if (needle) needle.style.marginLeft = `calc(${pct}% - 5px)`;
 }
@@ -1160,71 +1036,25 @@ window.exportCSV = async () => {
   toast("Preparing CSV…");
   try {
     const data = await api("/export/csv?days=30");
-    const cols = [
-      "hour",
-      "date",
-      "hour_num",
-      "avg_voltage",
-      "avg_current",
-      "avg_power",
-      "max_power",
-      "min_voltage",
-      "max_voltage",
-      "energy_kwh",
-      "samples",
-    ];
-    const csv = [
-      cols.join(","),
-      ...data.map((r) => cols.map((c) => r[c] ?? "").join(",")),
-    ].join("\n");
+    const cols  = ["hour","date","hour_num","avg_voltage","avg_current","avg_power","max_power","min_voltage","max_voltage","energy_kwh","samples"];
+    const csv   = [cols.join(","), ...data.map(r => cols.map(c => r[c] ?? "").join(","))].join("\n");
     downloadBlob(csv, "energyflow_hourly.csv", "text/csv");
     toast("✓ Hourly data exported!", "success");
-  } catch (e) {
-    toast("Export failed: " + e.message, "error");
-  }
+  } catch (e) { toast("Export failed: " + e.message, "error"); }
 };
 
 window.exportBillingCSV = async () => {
-  if (!billingData.length) {
-    toast("No billing data to export", "error");
-    return;
-  }
-  const cols = [
-    "from_date",
-    "to_date",
-    "units",
-    "energy_charge",
-    "fixed_charge",
-    "duty",
-    "total",
-    "slab",
-  ];
-  const csv = [
-    cols.join(","),
-    ...billingData
-      .filter((b) => b.type !== "baseline")
-      .map((b) => cols.map((c) => b[c] ?? "").join(",")),
-  ].join("\n");
+  if (!billingData.length) { toast("No billing data to export", "error"); return; }
+  const cols = ["from_date","to_date","units","energy_charge","fixed_charge","duty","total","slab"];
+  const csv  = [cols.join(","), ...billingData.filter(b => b.type !== "baseline").map(b => cols.map(c => b[c] ?? "").join(","))].join("\n");
   downloadBlob(csv, "energyflow_billing.csv", "text/csv");
   toast("✓ Billing history exported!", "success");
 };
 
 window.exportOutagesCSV = async () => {
-  if (!outageData.length) {
-    toast("No outage data to export", "error");
-    return;
-  }
-  const cols = [
-    "start_human",
-    "end_human",
-    "duration",
-    "duration_min",
-    "device_id",
-  ];
-  const csv = [
-    cols.join(","),
-    ...outageData.map((o) => cols.map((c) => o[c] ?? "").join(",")),
-  ].join("\n");
+  if (!outageData.length) { toast("No outage data to export", "error"); return; }
+  const cols = ["start_human","end_human","duration","duration_min","device_id"];
+  const csv  = [cols.join(","), ...outageData.map(o => cols.map(c => o[c] ?? "").join(","))].join("\n");
   downloadBlob(csv, "energyflow_outages.csv", "text/csv");
   toast("✓ Outage log exported!", "success");
 };
@@ -1232,8 +1062,7 @@ window.exportOutagesCSV = async () => {
 function downloadBlob(content, filename, type) {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([content], { type }));
-  a.download = filename;
-  a.click();
+  a.download = filename; a.click();
 }
 
 // ============================================================
@@ -1243,119 +1072,56 @@ function updateDashTime() {
   const now = new Date();
   setText("dashTime", now.toLocaleTimeString("en-IN"));
   const h = now.getHours();
-  const g =
-    h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
-  setText(
-    "dashGreeting",
-    `${g} — ${now.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })}`,
-  );
+  const g = h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
+  setText("dashGreeting", `${g} — ${now.toLocaleDateString("en-IN", { weekday:"long", day:"numeric", month:"long" })}`);
 }
 
 // ============================================================
 //  CHARTS — init all chart instances
 // ============================================================
 function initCharts() {
-  Chart.defaults.color = "#64748b";
-  Chart.defaults.borderColor = "rgba(255,255,255,0.05)";
-  Chart.defaults.font.family = "'Exo 2', sans-serif";
-  Chart.defaults.animation = { duration: 400 };
+  Chart.defaults.color          = "#64748b";
+  Chart.defaults.borderColor    = "rgba(255,255,255,0.05)";
+  Chart.defaults.font.family    = "'Exo 2', sans-serif";
+  Chart.defaults.animation      = { duration: 400 };
 
   const baseOpts = (yLabel) => ({
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: { display: false },
-      tooltip: {
-        mode: "index",
-        intersect: false,
-        backgroundColor: "rgba(6,12,20,0.95)",
-        borderColor: "rgba(251,191,36,0.2)",
-        borderWidth: 1,
-      },
-    },
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { display: false }, tooltip: { mode: "index", intersect: false, backgroundColor: "rgba(6,12,20,0.95)", borderColor: "rgba(251,191,36,0.2)", borderWidth: 1 } },
     scales: {
-      x: {
-        grid: { color: "rgba(255,255,255,0.03)" },
-        ticks: { maxTicksLimit: 8 },
-      },
-      y: {
-        grid: { color: "rgba(255,255,255,0.04)" },
-        ticks: { callback: (v) => `${v}${yLabel}` },
-      },
-    },
+      x: { grid: { color: "rgba(255,255,255,0.03)" }, ticks: { maxTicksLimit: 8 } },
+      y: { grid: { color: "rgba(255,255,255,0.04)" }, ticks: { callback: v => `${v}${yLabel}` } }
+    }
   });
 
   // Dashboard dual-axis chart
   const dCtx = document.getElementById("dashPowerChart")?.getContext("2d");
-  if (dCtx)
-    dashChart = new Chart(dCtx, {
-      type: "line",
-      data: {
-        labels: [],
-        datasets: [
-          {
-            label: "Power (W)",
-            data: [],
-            borderColor: "#fbbf24",
-            backgroundColor: hexFill("#fbbf24", 0.08),
-            tension: 0.4,
-            fill: true,
-            yAxisID: "yP",
-          },
-          {
-            label: "Voltage (V)",
-            data: [],
-            borderColor: "#38bdf8",
-            backgroundColor: "transparent",
-            tension: 0.4,
-            yAxisID: "yV",
-          },
-        ],
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            mode: "index",
-            intersect: false,
-            backgroundColor: "rgba(6,12,20,0.95)",
-            borderColor: "rgba(251,191,36,0.15)",
-            borderWidth: 1,
-          },
-        },
-        scales: {
-          x: { grid: { display: false }, ticks: { maxTicksLimit: 8 } },
-          yP: {
-            position: "left",
-            grid: { color: "rgba(255,255,255,0.03)" },
-            ticks: { callback: (v) => `${v}W` },
-          },
-          yV: {
-            position: "right",
-            grid: { display: false },
-            min: 180,
-            max: 260,
-            ticks: { callback: (v) => `${v}V` },
-          },
-        },
-      },
-    });
+  if (dCtx) dashChart = new Chart(dCtx, {
+    type: "line",
+    data: { labels: [], datasets: [
+      { label: "Power (W)", data: [], borderColor: "#fbbf24", backgroundColor: hexFill("#fbbf24", 0.08), tension: 0.4, fill: true, yAxisID: "yP" },
+      { label: "Voltage (V)", data: [], borderColor: "#38bdf8", backgroundColor: "transparent", tension: 0.4, yAxisID: "yV" },
+    ]},
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { mode: "index", intersect: false, backgroundColor: "rgba(6,12,20,0.95)", borderColor: "rgba(251,191,36,0.15)", borderWidth: 1 } },
+      scales: {
+        x:  { grid: { display: false }, ticks: { maxTicksLimit: 8 } },
+        yP: { position: "left",  grid: { color: "rgba(255,255,255,0.03)" }, ticks: { callback: v => `${v}W` } },
+        yV: { position: "right", grid: { display: false }, min: 180, max: 260, ticks: { callback: v => `${v}V` } }
+      }
+    }
+  });
 
   // Live charts
   liveVChart = makeLineChart("liveVoltageChart", "Voltage (V)", "#38bdf8");
   liveCChart = makeLineChart("liveCurrentChart", "Current (A)", "#fbbf24");
-  livePChart = makeLineChart("livePowerChart", "Power (W)", "#a78bfa");
+  livePChart = makeLineChart("livePowerChart",   "Power (W)",   "#a78bfa");
 
   // Statistics charts
-  hourlyEChart = makeBarChart("hourlyEnergyChart", "Energy (kWh)", "#fbbf24");
-  hourlyPChart = makeLineChart("hourlyPowerChart", "Power (W)", "#a78bfa");
-  voltStabChart = makeLineChart(
-    "voltageStabilityChart",
-    "Voltage (V)",
-    "#38bdf8",
-  );
+  hourlyEChart  = makeBarChart("hourlyEnergyChart",  "Energy (kWh)", "#fbbf24");
+  hourlyPChart  = makeLineChart("hourlyPowerChart",  "Power (W)",    "#a78bfa");
+  voltStabChart = makeLineChart("voltageStabilityChart", "Voltage (V)", "#38bdf8");
 }
 
 function makeLineChart(id, label, color) {
@@ -1363,32 +1129,15 @@ function makeLineChart(id, label, color) {
   if (!ctx) return null;
   return new Chart(ctx, {
     type: "line",
-    data: {
-      labels: [],
-      datasets: [
-        {
-          label,
-          data: [],
-          borderColor: color,
-          backgroundColor: hexFill(color, 0.1),
-          tension: 0.4,
-          fill: true,
-          borderWidth: 2,
-        },
-      ],
-    },
+    data: { labels: [], datasets: [{ label, data: [], borderColor: color, backgroundColor: hexFill(color, 0.1), tension: 0.4, fill: true, borderWidth: 2 }] },
     options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false },
-        tooltip: { mode: "index", intersect: false },
-      },
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false }, tooltip: { mode: "index", intersect: false } },
       scales: {
         x: { grid: { display: false }, ticks: { maxTicksLimit: 10 } },
-        y: { grid: { color: "rgba(255,255,255,0.04)" } },
-      },
-    },
+        y: { grid: { color: "rgba(255,255,255,0.04)" } }
+      }
+    }
   });
 }
 
@@ -1397,46 +1146,25 @@ function makeBarChart(id, label, color) {
   if (!ctx) return null;
   return new Chart(ctx, {
     type: "bar",
-    data: {
-      labels: [],
-      datasets: [
-        {
-          label,
-          data: [],
-          backgroundColor: hexFill(color, 0.55),
-          borderColor: color,
-          borderWidth: 1,
-          borderRadius: 4,
-        },
-      ],
-    },
+    data: { labels: [], datasets: [{ label, data: [], backgroundColor: hexFill(color, 0.55), borderColor: color, borderWidth: 1, borderRadius: 4 }] },
     options: {
-      responsive: true,
-      maintainAspectRatio: false,
+      responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false } },
       scales: {
         x: { grid: { display: false } },
-        y: { grid: { color: "rgba(255,255,255,0.04)" } },
-      },
-    },
+        y: { grid: { color: "rgba(255,255,255,0.04)" } }
+      }
+    }
   });
 }
 
 function appendDashChart(d) {
   if (!dashChart) return;
-  const ts = new Date().toLocaleTimeString("en-IN", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-  const c = dashChart.data;
-  if (c.labels.length > MAX_PTS) {
-    c.labels.shift();
-    c.datasets[0].data.shift();
-    c.datasets[1].data.shift();
-  }
+  const ts = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const c  = dashChart.data;
+  if (c.labels.length > MAX_PTS) { c.labels.shift(); c.datasets[0].data.shift(); c.datasets[1].data.shift(); }
   c.labels.push(ts);
-  c.datasets[0].data.push(d.power || 0);
+  c.datasets[0].data.push(d.power   || 0);
   c.datasets[1].data.push(d.voltage || 0);
   dashChart.update("none");
 }
@@ -1444,7 +1172,7 @@ function appendDashChart(d) {
 function updateLiveCharts() {
   safeUpdateChart(liveVChart, liveLabels, [{ data: liveVoltArr }]);
   safeUpdateChart(liveCChart, liveLabels, [{ data: liveCurrArr }]);
-  safeUpdateChart(livePChart, liveLabels, [{ data: livePowArr }]);
+  safeUpdateChart(livePChart, liveLabels, [{ data: livePowArr  }]);
 }
 
 function safeUpdateChart(chart, labels, datasets) {
@@ -1453,10 +1181,9 @@ function safeUpdateChart(chart, labels, datasets) {
   datasets.forEach((ds, i) => {
     if (chart.data.datasets[i]) {
       chart.data.datasets[i].data = [...ds.data];
-      if (ds.label) chart.data.datasets[i].label = ds.label;
-      if (ds.borderColor) chart.data.datasets[i].borderColor = ds.borderColor;
-      if (ds.backgroundColor)
-        chart.data.datasets[i].backgroundColor = ds.backgroundColor;
+      if (ds.label)           chart.data.datasets[i].label = ds.label;
+      if (ds.borderColor)     chart.data.datasets[i].borderColor = ds.borderColor;
+      if (ds.backgroundColor) chart.data.datasets[i].backgroundColor = ds.backgroundColor;
       if (ds.fill !== undefined) chart.data.datasets[i].fill = ds.fill;
     }
   });
@@ -1469,61 +1196,44 @@ function safeUpdateChart(chart, labels, datasets) {
 function drawGauge(id, value, min, max, color) {
   const canvas = document.getElementById(id);
   if (!canvas) return;
-  const ctx = canvas.getContext("2d");
-  const W = canvas.width,
-    H = canvas.height;
-  const cx = W / 2,
-    cy = H * 0.9;
-  const R = W * 0.42;
+  const ctx   = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height;
+  const cx = W / 2, cy = H * 0.9;
+  const R  = W * 0.42;
   const startAngle = Math.PI;
-  const endAngle = 2 * Math.PI;
-  const pct = Math.min(1, Math.max(0, (value - min) / (max - min)));
-  const valAngle = startAngle + pct * Math.PI;
+  const endAngle   = 2 * Math.PI;
+  const pct        = Math.min(1, Math.max(0, (value - min) / (max - min)));
+  const valAngle   = startAngle + pct * Math.PI;
 
   ctx.clearRect(0, 0, W, H);
 
   // Track
-  ctx.beginPath();
-  ctx.arc(cx, cy, R, startAngle, endAngle);
-  ctx.strokeStyle = "rgba(255,255,255,0.06)";
-  ctx.lineWidth = 10;
-  ctx.lineCap = "round";
-  ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx, cy, R, startAngle, endAngle);
+  ctx.strokeStyle = "rgba(255,255,255,0.06)"; ctx.lineWidth = 10; ctx.lineCap = "round"; ctx.stroke();
 
   // Fill
   const grad = ctx.createLinearGradient(0, 0, W, 0);
-  grad.addColorStop(0, color + "60");
-  grad.addColorStop(1, color);
-  ctx.beginPath();
-  ctx.arc(cx, cy, R, startAngle, valAngle);
-  ctx.strokeStyle = grad;
-  ctx.lineWidth = 10;
-  ctx.stroke();
+  grad.addColorStop(0, color + "60"); grad.addColorStop(1, color);
+  ctx.beginPath(); ctx.arc(cx, cy, R, startAngle, valAngle);
+  ctx.strokeStyle = grad; ctx.lineWidth = 10; ctx.stroke();
 
   // Tick marks
   for (let i = 0; i <= 10; i++) {
     const ang = startAngle + (i / 10) * Math.PI;
-    const ir = R - 14,
-      or = R - 8;
+    const ir = R - 14, or = R - 8;
     ctx.beginPath();
     ctx.moveTo(cx + Math.cos(ang) * ir, cy + Math.sin(ang) * ir);
     ctx.lineTo(cx + Math.cos(ang) * or, cy + Math.sin(ang) * or);
-    ctx.strokeStyle = "rgba(255,255,255,0.15)";
-    ctx.lineWidth = 1;
-    ctx.stroke();
+    ctx.strokeStyle = "rgba(255,255,255,0.15)"; ctx.lineWidth = 1; ctx.stroke();
   }
 
   // Needle
   const nx = cx + Math.cos(valAngle) * (R - 16);
   const ny = cy + Math.sin(valAngle) * (R - 16);
-  ctx.beginPath();
-  ctx.arc(nx, ny, 4, 0, 2 * Math.PI);
-  ctx.fillStyle = color;
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(cx, cy, 5, 0, 2 * Math.PI);
-  ctx.fillStyle = "rgba(255,255,255,0.2)";
-  ctx.fill();
+  ctx.beginPath(); ctx.arc(nx, ny, 4, 0, 2 * Math.PI);
+  ctx.fillStyle = color; ctx.fill();
+  ctx.beginPath(); ctx.arc(cx, cy, 5, 0, 2 * Math.PI);
+  ctx.fillStyle = "rgba(255,255,255,0.2)"; ctx.fill();
 }
 
 // ============================================================
@@ -1547,48 +1257,28 @@ function showLoading(on) {
 // ============================================================
 //  HELPERS
 // ============================================================
-function setText(id, val) {
-  const el = document.getElementById(id);
-  if (el) el.textContent = val;
-}
-function setEl(id, val) {
-  setText(id, val);
-}
-function setTextColor(id, val, cls) {
-  const el = document.getElementById(id);
-  if (el) {
-    el.textContent = val;
-    el.className = cls;
-  }
-}
-function setVal(id, val) {
-  const el = document.getElementById(id);
-  if (el) el.value = val;
-}
-function getVal(id) {
-  return document.getElementById(id)?.value || "";
-}
-function fmtNum(n, dec) {
-  return (n || 0).toFixed(dec);
-}
+function setText(id, val) { const el = document.getElementById(id); if (el) el.textContent = val; }
+function setEl(id, val)   { setText(id, val); }
+function setTextColor(id, val, cls) { const el = document.getElementById(id); if (el) { el.textContent = val; el.className = cls; } }
+function setVal(id, val)  { const el = document.getElementById(id); if (el) el.value = val; }
+function getVal(id)       { return document.getElementById(id)?.value || ""; }
+function fmtNum(n, dec)   { return (n || 0).toFixed(dec); }
 
 function hexFill(hex, alpha) {
-  const r = parseInt(hex.slice(1, 3), 16),
-    g = parseInt(hex.slice(3, 5), 16),
-    b = parseInt(hex.slice(5, 7), 16);
+  const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
 function timeSince(ts) {
   const sec = Math.floor(Date.now() / 1000 - ts);
-  if (sec < 60) return `${sec}s`;
+  if (sec < 60)   return `${sec}s`;
   if (sec < 3600) return `${Math.floor(sec / 60)}m`;
   return `${Math.floor(sec / 3600)}h`;
 }
 
 function powerLabel(p) {
-  if (p < 50) return "Standby / Idle";
-  if (p < 500) return "Light load";
+  if (p < 50)   return "Standby / Idle";
+  if (p < 500)  return "Light load";
   if (p < 2000) return "Medium load (AC/Fan)";
   if (p < 5000) return "Heavy load (Cooking)";
   return "Very heavy — check appliances";
@@ -1602,30 +1292,25 @@ function voltageLabel(v) {
   return "🚨 Critically high — switch off";
 }
 
-function mean(arr) {
-  return arr.reduce((a, b) => a + b, 0) / arr.length;
-}
-function std(arr) {
-  const m = mean(arr);
-  return Math.sqrt(arr.reduce((a, b) => a + (b - m) ** 2, 0) / arr.length);
-}
+function mean(arr) { return arr.reduce((a,b) => a+b, 0) / arr.length; }
+function std(arr)  { const m = mean(arr); return Math.sqrt(arr.reduce((a,b) => a+(b-m)**2, 0) / arr.length); }
 
 // ── Expose needed functions globally
-window.showPage = window.showPage;
-window.prevMonth = window.prevMonth;
-window.nextMonth = window.nextMonth;
+window.showPage        = window.showPage;
+window.prevMonth       = window.prevMonth;
+window.nextMonth       = window.nextMonth;
 window.openDeviceModal = window.openDeviceModal;
-window.registerDevice = window.registerDevice;
-window.closeDeviceModal = window.closeDeviceModal;
-window.takeReading = window.takeReading;
-window.calcBill = window.calcBill;
-window.exportCSV = window.exportCSV;
-window.exportBillingCSV = window.exportBillingCSV;
-window.exportOutagesCSV = window.exportOutagesCSV;
-window.saveProfile = window.saveProfile;
-window.setStatView = window.setStatView;
-window.clearLog = window.clearLog;
-window.switchAuthTab = window.switchAuthTab;
-window.login = window.login;
-window.signup = window.signup;
-window.logout = window.logout;
+window.registerDevice  = window.registerDevice;
+window.closeDeviceModal= window.closeDeviceModal;
+window.takeReading     = window.takeReading;
+window.calcBill        = window.calcBill;
+window.exportCSV       = window.exportCSV;
+window.exportBillingCSV= window.exportBillingCSV;
+window.exportOutagesCSV= window.exportOutagesCSV;
+window.saveProfile     = window.saveProfile;
+window.setStatView     = window.setStatView;
+window.clearLog        = window.clearLog;
+window.switchAuthTab   = window.switchAuthTab;
+window.login           = window.login;
+window.signup          = window.signup;
+window.logout          = window.logout;

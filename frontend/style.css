@@ -491,3 +491,35 @@ select option { background: #0d1626; }
 
 /* ── LIVE CHARTS GRID ── */
 .live-charts-grid .span-2 { grid-column: 1 / -1; }
+
+/* ── ANOMALY CARDS (redesigned) ── */
+.anomaly-legend {
+  background: rgba(56,189,248,0.05); border: 1px solid rgba(56,189,248,0.15);
+  border-radius: 10px; padding: 14px 16px; margin-bottom: 14px;
+}
+.al-title { color: var(--blue); font-weight: 700; font-size: 0.85rem; margin-bottom: 6px; font-family: 'Rajdhani', sans-serif; }
+.al-body  { font-size: 12px; color: var(--text-dim); line-height: 1.7; }
+.al-body strong { color: var(--text); }
+
+.anomaly-card {
+  background: rgba(0,0,0,0.2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 14px 16px; margin-bottom: 10px;
+  transition: border-color 0.2s;
+}
+.anomaly-card:hover { border-color: rgba(255,255,255,0.12); }
+.anomaly-card-top { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
+.ac-badge {
+  padding: 4px 12px; border-radius: 20px; border: 1px solid;
+  font-size: 11px; font-weight: 700; letter-spacing: 0.5px;
+  font-family: 'Rajdhani', sans-serif;
+}
+.ac-hour { font-family: 'Space Mono', monospace; font-size: 11px; color: var(--text-dim); }
+.ac-val  { margin-left: auto; font-family: 'Space Mono', monospace; font-size: 1rem; font-weight: 700; }
+.ac-desc { font-size: 12px; color: var(--text-dim); line-height: 1.7; margin-bottom: 6px; }
+.ac-action { font-size: 11px; color: var(--text-muted); font-style: italic; color: #475569; }
+
+/* ── ML SCORE COLOURS ── */
+.ml-score-val.green-text  { color: var(--green) !important; }
+.ml-score-val.amber-text  { color: var(--amber) !important; }
+.ml-score-val.red-text    { color: var(--red)   !important; }
+.ml-score-val.blue-text   { color: var(--blue)  !important; }
