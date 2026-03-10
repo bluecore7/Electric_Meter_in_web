@@ -442,27 +442,28 @@ def log_outage(data: OutagePayload, request: Request):
     """
     Records a power outage.
     Called by:
-      - ESP32 on power restore (no auth header)
-      - Frontend when it detects device went offline (Authorization header)
+      - ESP32 on power restore (no auth header) — looks up owner from device
+      - Frontend when it detects device went offline (Authorization: Bearer token)
     """
     db = get_db()
 
-    # Try to get uid from auth header (frontend call)
+    # Try Firebase token from Authorization header (frontend call)
     uid = None
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
         try:
-            from auth import verify_token
-            uid = verify_token(auth_header[7:])
-        except Exception:
-            uid = None
+            import firebase_admin.auth as fb_auth
+            decoded = fb_auth.verify_id_token(auth_header[7:])
+            uid = decoded.get("uid")
+        except Exception as e:
+            uid = None  # token invalid or expired — fall through to owner lookup
 
-    # Fall back to device owner lookup (ESP call or if token verify failed)
+    # Fall back to device owner lookup (ESP32 call — no auth header)
     if not uid:
         uid = db.child("devices").child(data.device_id).child("owner").get()
 
     if not uid:
-        raise HTTPException(status_code=404, detail="Device not registered or auth required")
+        raise HTTPException(status_code=404, detail="Device not registered")
 
     record = {
         "device_id":    data.device_id,
