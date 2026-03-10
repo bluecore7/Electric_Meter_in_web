@@ -476,22 +476,26 @@ def log_outage(data: OutagePayload, request: Request):
         print(f"log_outage ERROR: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+    # Cast to int — avoids Firebase / JSON type errors
+    duration = int(data.duration or 0)
+    start_ts = int(data.start_ts or 0)
+    end_ts   = int(data.end_ts   or 0)
+
     record = {
-        "device_id":    data.device_id,
-        "start_ts":     data.start_ts,
-        "end_ts":       data.end_ts,
-        "duration":     data.duration,
-        "duration_min": round(data.duration / 60, 2),
-        "start_human":  ts_to_ist(data.start_ts).strftime("%d %b %Y, %I:%M %p IST"),
-        "end_human":    ts_to_ist(data.end_ts).strftime("%d %b %Y, %I:%M %p IST"),
+        "device_id":    str(data.device_id),
+        "start_ts":     start_ts,
+        "end_ts":       end_ts,
+        "duration":     duration,
+        "duration_min": round(duration / 60, 2),
+        "start_human":  ts_to_ist(start_ts).strftime("%d %b %Y, %I:%M %p IST") if start_ts > 0 else "unknown",
+        "end_human":    ts_to_ist(end_ts).strftime("%d %b %Y, %I:%M %p IST")   if end_ts   > 0 else "unknown",
         "logged_at":    int(time.time()),
+        "source":       "frontend",
     }
 
-    # Store under device AND user (cross-device access)
     db.child("devices").child(data.device_id).child("outages").push(record)
     db.child("users").child(uid).child("outages").push(record)
 
-    # Update user's outage stats aggregate
     stats_ref = db.child("users").child(uid).child("outage_stats")
     existing  = stats_ref.get() or {}
     stats_ref.set({
@@ -502,6 +506,7 @@ def log_outage(data: OutagePayload, request: Request):
         "last_restored_ts":   end_ts,
     })
 
+    print(f"Outage saved: device={data.device_id} uid={uid} dur={duration}s")
     return {"status": "ok", "duration_min": record["duration_min"]}
 
 @app.get("/outages", tags=["Outage"])
