@@ -3,7 +3,9 @@
 # Cross-device sync guaranteed — reading from DB on every request
 
 from fastapi import FastAPI, Depends, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from firebase import get_db
 from auth import verify_user
 from models import DevicePayload, OutagePayload, UserProfile
@@ -54,14 +56,8 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://energyflow-esp32.web.app",
-        "https://energyflow-esp32.firebaseapp.com",
-        "http://localhost",
-        "http://localhost:5000",
-        "http://127.0.0.1:5000",
-    ],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
@@ -451,6 +447,7 @@ def log_outage(data: OutagePayload, request: Request):
       - ESP32 on power restore (no auth header) — looks up owner from device
       - Frontend when it detects device went offline (Authorization: Bearer token)
     """
+    print(f"log_outage called: device={data.device_id} start={data.start_ts} end={data.end_ts} dur={data.duration}")
     try:
         db = get_db()
 
@@ -492,17 +489,17 @@ def log_outage(data: OutagePayload, request: Request):
 
     # Store under device AND user (cross-device access)
     db.child("devices").child(data.device_id).child("outages").push(record)
-    db.child("users").child(owner).child("outages").push(record)
+    db.child("users").child(uid).child("outages").push(record)
 
     # Update user's outage stats aggregate
-    stats_ref = db.child("users").child(owner).child("outage_stats")
+    stats_ref = db.child("users").child(uid).child("outage_stats")
     existing  = stats_ref.get() or {}
     stats_ref.set({
         "total_outages":      existing.get("total_outages", 0) + 1,
-        "total_duration_sec": existing.get("total_duration_sec", 0) + data.duration,
-        "longest_sec":        max(existing.get("longest_sec", 0), data.duration),
-        "last_outage_ts":     data.start_ts,
-        "last_restored_ts":   data.end_ts,
+        "total_duration_sec": existing.get("total_duration_sec", 0) + duration,
+        "longest_sec":        max(existing.get("longest_sec", 0), duration),
+        "last_outage_ts":     start_ts,
+        "last_restored_ts":   end_ts,
     })
 
     return {"status": "ok", "duration_min": record["duration_min"]}
