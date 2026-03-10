@@ -263,29 +263,161 @@ window.showPage = (page) => {
 // ============================================================
 //  LIVE DATA POLL — reads from Firebase via backend
 // ============================================================
+// Tracks when we last got a REAL reading from the ESP
+let lastReadingTs = 0; // unix seconds of the last valid ESP reading
+let offlineSince = 0; // when we first detected the device went offline (ms)
+let offlineTimer = null; // interval that counts up the "offline for Xm Ys" display
+
 async function pollLive() {
   try {
     const d = await api("/live");
-    updateConnectionPill(true);
-    updateKPIs(d);
-    updateDashBillingRow(d);
-    updateLivePage(d);
-    updateSlabIndicator(d.units_used || 0);
-    appendDashChart(d);
+
+    // ── STALENESS CHECK
+    // The backend always returns the last stored reading from Firebase,
+    // even if the ESP has been off for an hour. We must check the
+    // timestamp ourselves. If the reading is >15s old, the device is offline.
+    const nowSec = Date.now() / 1000;
+    const ageSec = nowSec - (d.timestamp || 0);
+    const isStale = ageSec > 15; // no reading in 15s = offline
+
+    if (isStale) {
+      // API call worked (backend is up) but ESP is not sending
+      handleDeviceOffline(d.timestamp || 0);
+    } else {
+      // Fresh reading — device is live
+      handleDeviceOnline(d);
+    }
   } catch (e) {
-    updateConnectionPill(false);
+    // Backend itself unreachable
+    handleDeviceOffline(0);
+    updateConnectionPill(false, "Backend offline");
   }
 }
 
-function updateConnectionPill(ok) {
+async function handleDeviceOnline(d) {
+  const nowSec = Math.floor(Date.now() / 1000);
+
+  // ── If we were offline, record the outage now that device is back
+  if (offlineSince > 0 && lastReadingTs > 0) {
+    const outageStartSec = lastReadingTs; // last known good reading
+    const outageEndSec = nowSec;
+    const duration = outageEndSec - outageStartSec;
+
+    // Only record if offline for more than 20 seconds (ignore brief network blips)
+    if (duration > 20) {
+      try {
+        // Get device_id from stored devices list
+        const devId = window._deviceId || "ESP001";
+        await api("/device/outage", "POST", {
+          device_id: devId,
+          start_ts: outageStartSec,
+          end_ts: outageEndSec,
+          duration: duration,
+        });
+        toast(`⚡ Outage recorded — ${fmtDuration(duration)}`, "info");
+        // Refresh outage displays
+        loadOutages();
+      } catch (e) {
+        console.warn("Failed to record outage:", e);
+      }
+    }
+  }
+
+  lastReadingTs = d.timestamp || 0;
+  offlineSince = 0;
+  if (offlineTimer) {
+    clearInterval(offlineTimer);
+    offlineTimer = null;
+  }
+
+  updateConnectionPill(true);
+  updateKPIs(d);
+  updateDashBillingRow(d);
+  updateLivePage(d, false);
+  updateSlabIndicator(d.units_used || 0);
+  appendDashChart(d);
+  clearOfflineBanner();
+}
+
+function handleDeviceOffline(lastTs) {
+  // Record when we first noticed it went offline
+  if (!offlineSince) {
+    offlineSince = Date.now();
+    // Also store last known reading ts so outage start is accurate
+    if (lastTs > 0) lastReadingTs = lastTs;
+  }
+
+  updateConnectionPill(false);
+
+  const wipe = ["kpiPower", "kpiVoltage", "kpiPowerSub", "kpiVoltageSub"];
+  wipe.forEach((id) => setText(id, "—"));
+  setText("kpiPowerSub", "Device offline");
+  setText("kpiVoltageSub", "No signal");
+
+  updateLivePage(
+    {
+      voltage: 0,
+      current: 0,
+      power: 0,
+      energy_kWh: 0,
+      total_estimate: 0,
+      units_used: 0,
+      timestamp: lastTs,
+    },
+    true,
+  );
+
+  showOfflineBanner(lastTs);
+
+  if (!offlineTimer) {
+    offlineTimer = setInterval(() => showOfflineBanner(lastTs), 1000);
+  }
+}
+
+function showOfflineBanner(lastTs) {
+  const el = document.getElementById("offlineBanner");
+  if (!el) return;
+
+  const durationSec = offlineSince
+    ? Math.floor((Date.now() - offlineSince) / 1000)
+    : 0;
+  const mins = Math.floor(durationSec / 60);
+  const secs = durationSec % 60;
+  const durationStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+
+  const lastSeenStr =
+    lastTs > 0
+      ? new Date(lastTs * 1000).toLocaleTimeString("en-IN", {
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: true,
+        })
+      : "unknown";
+
+  el.style.display = "flex";
+  el.innerHTML = `
+    <span class="ob-icon">⚡</span>
+    <div class="ob-text">
+      <strong>Device offline</strong>
+      <span>Last seen at ${lastSeenStr} · Offline for <span class="ob-timer">${durationStr}</span></span>
+    </div>`;
+}
+
+function clearOfflineBanner() {
+  const el = document.getElementById("offlineBanner");
+  if (el) el.style.display = "none";
+}
+
+function updateConnectionPill(ok, label) {
   const dot = document.querySelector(".conn-dot");
-  const label = document.getElementById("connLabel");
+  const lbl = document.getElementById("connLabel");
+  if (!dot || !lbl) return;
   if (ok) {
     dot.className = "conn-dot live";
-    label.textContent = "Live";
+    lbl.textContent = "Live";
   } else {
     dot.className = "conn-dot error";
-    label.textContent = "Offline";
+    lbl.textContent = label || "Offline";
   }
 }
 
@@ -328,13 +460,32 @@ function updateDashBillingRow(d) {
 // ============================================================
 //  LIVE PAGE
 // ============================================================
-function updateLivePage(d) {
+function updateLivePage(d, isStale = false) {
   const ts = new Date().toLocaleTimeString("en-IN", {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
     hour12: true,
   });
+  const bar = document.getElementById("liveStatus");
+
+  if (isStale) {
+    // Device offline — wipe gauge values and show offline state
+    ["liveVoltage", "liveCurrent", "livePower"].forEach((id) =>
+      setText(id, "—"),
+    );
+    setStatusPillOffline("voltageStatus");
+    setStatusPillOffline("currentStatus");
+    setStatusPillOffline("powerStatus");
+    drawGauge("voltageGauge", 0, 180, 260, "#38bdf8");
+    drawGauge("currentGauge", 0, 0, 32, "#fbbf24");
+    drawGauge("powerGauge", 0, 0, 7360, "#a78bfa");
+    if (bar) {
+      bar.innerHTML = `<span class="pulse-dot offline-dot"></span> OFFLINE — no signal`;
+      bar.style.color = "var(--red)";
+    }
+    return; // don't push stale values to charts or log
+  }
 
   setText("liveVoltage", fmtNum(d.voltage, 1));
   setText("liveCurrent", fmtNum(d.current, 3));
@@ -348,10 +499,8 @@ function updateLivePage(d) {
   setStatusPill("currentStatus", d.current, 0, 28, "A");
   setStatusPill("powerStatus", d.power, 0, 6000, "W");
 
-  // Update live status bar
-  const bar = document.getElementById("liveStatus");
-  if (bar && d.voltage > 0) {
-    bar.innerHTML = `<span class="pulse-dot"></span> LIVE — Last reading: ${ts}`;
+  if (bar) {
+    bar.innerHTML = `<span class="pulse-dot"></span> LIVE — ${ts}`;
     bar.style.color = "var(--green)";
   }
 
@@ -377,6 +526,13 @@ function updateLivePage(d) {
   if (d.power > 0 || d.voltage > 0) {
     appendLog(ts, d);
   }
+}
+
+function setStatusPillOffline(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = "OFFLINE";
+  el.className = "status-pill offline-pill";
 }
 
 function setStatusPill(id, val, lo, hi, unit) {
@@ -1064,6 +1220,8 @@ async function loadDevices() {
 }
 
 function renderDeviceList(devices) {
+  // Cache first device_id for outage recording
+  if (devices && devices.length > 0) window._deviceId = devices[0].device_id;
   const el = document.getElementById("deviceList");
   if (!el) return;
   if (!devices.length) {
@@ -1640,17 +1798,30 @@ function appendDashChart(d) {
 }
 
 function updateLiveCharts() {
-  safeUpdateChart(liveVChart, liveLabels, [{ data: liveVoltArr }]);
-  safeUpdateChart(liveCChart, liveLabels, [{ data: liveCurrArr }]);
-  safeUpdateChart(livePChart, liveLabels, [{ data: livePowArr }]);
+  // update("none") skips animation entirely — critical for 3s refresh speed
+  if (liveVChart) {
+    liveVChart.data.labels = liveLabels;
+    liveVChart.data.datasets[0].data = liveVoltArr;
+    liveVChart.update("none");
+  }
+  if (liveCChart) {
+    liveCChart.data.labels = liveLabels;
+    liveCChart.data.datasets[0].data = liveCurrArr;
+    liveCChart.update("none");
+  }
+  if (livePChart) {
+    livePChart.data.labels = liveLabels;
+    livePChart.data.datasets[0].data = livePowArr;
+    livePChart.update("none");
+  }
 }
 
 function safeUpdateChart(chart, labels, datasets) {
   if (!chart) return;
-  chart.data.labels = [...labels];
+  chart.data.labels = labels; // direct ref is fine — chart reads on update()
   datasets.forEach((ds, i) => {
     if (chart.data.datasets[i]) {
-      chart.data.datasets[i].data = [...ds.data];
+      chart.data.datasets[i].data = ds.data; // no spread — avoids GC churn
       if (ds.label) chart.data.datasets[i].label = ds.label;
       if (ds.borderColor) chart.data.datasets[i].borderColor = ds.borderColor;
       if (ds.backgroundColor)
