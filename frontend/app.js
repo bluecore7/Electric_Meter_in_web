@@ -285,7 +285,7 @@ async function pollLive() {
       handleDeviceOffline(d.timestamp || 0);
     } else {
       // Fresh reading — device is live
-      handleDeviceOnline(d);
+      await handleDeviceOnline(d);
     }
   } catch (e) {
     // Backend itself unreachable
@@ -308,11 +308,20 @@ async function handleDeviceOnline(d) {
       try {
         // Get device_id from stored devices list
         const devId = window._deviceId || "ESP001";
-        await api("/device/outage", "POST", {
-          device_id: devId,
-          start_ts: outageStartSec,
-          end_ts: outageEndSec,
-          duration: duration,
+        await api("/device/outage", {
+          method: "POST",
+          body: JSON.stringify({
+            device_id: devId,
+            start_ts: outageStartSec,
+            end_ts: outageEndSec,
+            duration: duration,
+          }),
+        });
+        console.log("Outage recorded:", {
+          devId,
+          outageStartSec,
+          outageEndSec,
+          duration,
         });
         toast(`⚡ Outage recorded — ${fmtDuration(duration)}`, "info");
         // Refresh outage displays
