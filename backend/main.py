@@ -11,6 +11,15 @@ import time
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
+# India Standard Time (UTC+5:30)
+IST = timezone(timedelta(hours=5, minutes=30))
+
+def now_ist():
+    return datetime.now(tz=IST)
+
+def ts_to_ist(ts: int) -> datetime:
+    return datetime.fromtimestamp(ts, tz=IST)
+
 # ============================================================
 #  TNEB TARIFF ENGINE
 # ============================================================
@@ -129,55 +138,106 @@ def list_devices(uid=Depends(verify_user)):
 @app.post("/device/live", tags=["Device"])
 def device_live(data: DevicePayload):
     """
-    Receives live readings from ESP32.
-    Stores:
-      1. Live snapshot (latest reading, always overwritten)
-      2. Hourly aggregate (for statistics + ML, persistent)
-      3. Daily summary (for billing projection)
+    Receives live readings from ESP32 every 3 seconds.
+
+    ENERGY PERSISTENCE ACROSS REBOOTS:
+    ─────────────────────────────────
+    The ESP32 tracks energy_kWh starting from 0 each boot
+    (even with flash storage, a sudden power cut may lose recent values).
+    We store a base_energy_kWh in Firebase so that:
+
+        true_cumulative = base_energy + esp_reported_energy
+
+    When we detect a reboot (esp energy dropped vs last known value),
+    we promote the last true_cumulative to the new base before adding.
+    This means the meter reading in the app NEVER goes backward.
+
+    TIMEZONE:
+    ─────────
+    All time bucketing is done in IST (UTC+5:30) so hour keys
+    match the user's local clock (8pm IST = hour 20, not 14).
     """
     db = get_db()
     ts = data.timestamp
-    dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+    dt = ts_to_ist(ts)   # ← IST, not UTC
 
-    # ── 1. Live snapshot
+    # ═══════════════════════════════════════════════════════
+    #  ENERGY CONTINUITY — the core persistence mechanism
+    # ═══════════════════════════════════════════════════════
+    energy_ref  = db.child("devices").child(data.device_id).child("energy")
+    energy_doc  = energy_ref.get() or {}
+
+    base_energy   = energy_doc.get("base_kWh", 0.0)      # total kWh before last reboot
+    last_esp_kwh  = energy_doc.get("last_esp_kWh", -1.0) # last value ESP reported
+    last_true_kwh = energy_doc.get("true_kWh", 0.0)      # last stored true cumulative
+
+    esp_kwh = data.energy_kWh  # what the ESP says (resets to ~0 after each reboot)
+
+    # Detect reboot: ESP energy dropped by more than 0.01 kWh from last known value
+    # (small drops can happen from floating point, so use 0.01 as minimum drop threshold)
+    reboot_detected = (last_esp_kwh >= 0) and (esp_kwh < last_esp_kwh - 0.01)
+
+    if reboot_detected:
+        # ESP restarted — promote last true cumulative to the new base
+        # From now on: true = new_base + new_esp_readings
+        base_energy = last_true_kwh
+        energy_ref.set({
+            "base_kWh":     base_energy,
+            "last_esp_kWh": esp_kwh,
+            "true_kWh":     base_energy + esp_kwh,
+            "reboot_count": energy_doc.get("reboot_count", 0) + 1,
+            "last_reboot_ts": ts,
+        })
+    else:
+        # Normal reading — just update running values
+        true_kwh = base_energy + esp_kwh
+        energy_ref.set({
+            "base_kWh":     base_energy,
+            "last_esp_kWh": esp_kwh,
+            "true_kWh":     true_kwh,
+            "reboot_count": energy_doc.get("reboot_count", 0),
+            "last_reboot_ts": energy_doc.get("last_reboot_ts", 0),
+        })
+
+    true_cumulative_kwh = base_energy + esp_kwh
+
+    # ── 1. Live snapshot — store true cumulative, not raw esp value
     db.child("devices").child(data.device_id).child("live").set({
-        "voltage":    data.voltage,
-        "current":    data.current,
-        "power":      data.power,
-        "energy_kWh": data.energy_kWh,
-        "timestamp":  ts
+        "voltage":          data.voltage,
+        "current":          data.current,
+        "power":            data.power,
+        "energy_kWh":       true_cumulative_kwh,   # ← true meter reading
+        "esp_energy_kWh":   esp_kwh,               # ← raw ESP value (for debugging)
+        "base_energy_kWh":  base_energy,
+        "timestamp":        ts,
+        "reboot_detected":  reboot_detected,
     })
 
-    # ── 2. Hourly aggregate (YYYY-MM-DD_HH)
-    hour_key = dt.strftime("%Y-%m-%d_%H")
+    is_outage_reading = data.voltage < 50
+
+    # ── 2. Hourly aggregate — keyed by IST hour
+    hour_key = dt.strftime("%Y-%m-%d_%H")   # e.g. "2025-10-03_20" for 8pm IST
     hourly_ref = db.child("devices").child(data.device_id).child("hourly").child(hour_key)
     existing = hourly_ref.get() or {}
     count = existing.get("count", 0) + 1
 
-    # ── KEY FIX: 0V = power outage. Do NOT include in voltage stats.
-    # Including 0V in voltage_min would falsely trigger LOW_VOLTAGE anomaly.
-    # Only count it as an outage sample so avg_voltage reflects real supply quality.
-    is_outage_reading = data.voltage < 50
-
     if is_outage_reading:
-        # Outage sample: increment outage count, skip all electrical stats
         hourly_ref.set({
-            **existing,                                          # keep existing stats untouched
-            "count":         count,
-            "outage_samples":existing.get("outage_samples", 0) + 1,
-            "timestamp":     ts,
-            "date":          dt.strftime("%Y-%m-%d"),
-            "hour":          dt.hour,
+            **existing,
+            "count":          count,
+            "outage_samples": existing.get("outage_samples", 0) + 1,
+            "timestamp":      ts,
+            "date":           dt.strftime("%Y-%m-%d"),
+            "hour":           dt.hour,
         })
     else:
-        # Normal sample: update all electrical stats
         active_count = existing.get("active_count", 0) + 1
         hourly_ref.set({
-            "voltage_sum":    existing.get("voltage_sum", 0)   + data.voltage,
-            "current_sum":    existing.get("current_sum", 0)   + data.current,
-            "power_sum":      existing.get("power_sum", 0)     + data.power,
-            "energy_max":     max(existing.get("energy_max", 0), data.energy_kWh),
-            "energy_min":     min(existing.get("energy_min", data.energy_kWh), data.energy_kWh),
+            "voltage_sum":    existing.get("voltage_sum", 0)    + data.voltage,
+            "current_sum":    existing.get("current_sum", 0)    + data.current,
+            "power_sum":      existing.get("power_sum", 0)      + data.power,
+            "energy_max":     max(existing.get("energy_max", 0), true_cumulative_kwh),
+            "energy_min":     min(existing.get("energy_min", true_cumulative_kwh), true_cumulative_kwh),
             "power_max":      max(existing.get("power_max", 0), data.power),
             "voltage_min":    min(existing.get("voltage_min", data.voltage), data.voltage),
             "voltage_max":    max(existing.get("voltage_max", 0), data.voltage),
@@ -189,11 +249,12 @@ def device_live(data: DevicePayload):
             "hour":           dt.hour,
         })
 
-    # ── 3. Daily summary (YYYY-MM-DD)
+    # ── 3. Daily summary — keyed by IST date
     day_key = dt.strftime("%Y-%m-%d")
     day_ref = db.child("devices").child(data.device_id).child("daily").child(day_key)
     day_existing = day_ref.get() or {}
     day_count = day_existing.get("count", 0) + 1
+
     if is_outage_reading:
         day_ref.set({
             **day_existing,
@@ -205,8 +266,8 @@ def device_live(data: DevicePayload):
     else:
         day_ref.set({
             "power_sum":      day_existing.get("power_sum", 0)    + data.power,
-            "energy_max":     max(day_existing.get("energy_max", 0), data.energy_kWh),
-            "energy_min":     min(day_existing.get("energy_min", data.energy_kWh), data.energy_kWh),
+            "energy_max":     max(day_existing.get("energy_max", 0), true_cumulative_kwh),
+            "energy_min":     min(day_existing.get("energy_min", true_cumulative_kwh), true_cumulative_kwh),
             "power_max":      max(day_existing.get("power_max", 0), data.power),
             "voltage_min":    min(day_existing.get("voltage_min", data.voltage), data.voltage),
             "voltage_max":    max(day_existing.get("voltage_max", 0), data.voltage),
@@ -216,7 +277,13 @@ def device_live(data: DevicePayload):
             "timestamp":      ts,
         })
 
-    return {"status": "ok", "hour": hour_key, "day": day_key}
+    return {
+        "status":           "ok",
+        "hour":             hour_key,
+        "day":              day_key,
+        "true_kwh":         round(true_cumulative_kwh, 5),
+        "reboot_detected":  reboot_detected,
+    }
 
 # ============================================================
 #  LIVE DATA — Dashboard fetches this
@@ -232,9 +299,12 @@ def get_live(uid=Depends(verify_user)):
     if not live:
         return {"voltage": 0, "current": 0, "power": 0, "energy_kWh": 0, "units_used": 0, "timestamp": 0}
 
+    # Use true cumulative kWh (base + esp) — this never goes backward after a reboot
+    energy_doc  = db.child("devices").child(device_id).child("energy").get() or {}
+    current_kwh = energy_doc.get("true_kWh", live.get("energy_kWh", 0))
+
     # Units used since last billing reading
     bills = db.child("users").child(uid).child("bills").get()
-    current_kwh  = live.get("energy_kWh", 0)
     last_bill_kwh = 0
     if bills:
         bill_list = sorted(bills.values(), key=lambda x: x.get("to_ts", 0))
@@ -274,7 +344,7 @@ def stats_hourly(
     if not hourly_raw:
         return []
 
-    cutoff_dt  = datetime.now(tz=timezone.utc) - timedelta(days=days)
+    cutoff_dt  = now_ist() - timedelta(days=days)
     cutoff_key = cutoff_dt.strftime("%Y-%m-%d_%H")
 
     result = []
@@ -319,7 +389,7 @@ def stats_daily(uid=Depends(verify_user), days: int = Query(default=30, ge=1, le
     if not daily_raw:
         return []
 
-    cutoff = (datetime.now(tz=timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+    cutoff = (now_ist() - timedelta(days=days)).strftime("%Y-%m-%d")
     result = []
     for key, val in daily_raw.items():
         if key < cutoff or not val or val.get("count", 0) == 0:
@@ -380,8 +450,8 @@ def log_outage(data: OutagePayload):
         "end_ts":       data.end_ts,
         "duration":     data.duration,
         "duration_min": round(data.duration / 60, 2),
-        "start_human":  datetime.fromtimestamp(data.start_ts, tz=timezone.utc).isoformat(),
-        "end_human":    datetime.fromtimestamp(data.end_ts, tz=timezone.utc).isoformat(),
+        "start_human":  ts_to_ist(data.start_ts).strftime("%d %b %Y, %I:%M %p IST"),
+        "end_human":    ts_to_ist(data.end_ts).strftime("%d %b %Y, %I:%M %p IST"),
         "logged_at":    int(time.time()),
     }
 
@@ -442,7 +512,7 @@ def take_reading(uid=Depends(verify_user)):
 
     energy_now = live.get("energy_kWh", 0)
     ts_now     = live.get("timestamp", int(time.time()))
-    dt_now     = datetime.fromtimestamp(ts_now, tz=timezone.utc)
+    dt_now     = ts_to_ist(ts_now)
 
     bills_ref  = db.child("users").child(uid).child("bills")
     bills      = bills_ref.get() or {}
@@ -469,7 +539,7 @@ def take_reading(uid=Depends(verify_user)):
     last_bill  = bill_list[-1]
     energy_prev = last_bill.get("energy_end", 0)
     from_ts     = last_bill.get("to_ts", ts_now)
-    dt_from     = datetime.fromtimestamp(from_ts, tz=timezone.utc)
+    dt_from     = ts_to_ist(from_ts)
 
     units         = round(max(0, energy_now - energy_prev), 5)
     energy_charge = calculate_bill(units)
