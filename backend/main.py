@@ -54,9 +54,15 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://energyflow-esp32.web.app",
+        "https://energyflow-esp32.firebaseapp.com",
+        "http://localhost",
+        "http://localhost:5000",
+        "http://127.0.0.1:5000",
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -445,25 +451,33 @@ def log_outage(data: OutagePayload, request: Request):
       - ESP32 on power restore (no auth header) — looks up owner from device
       - Frontend when it detects device went offline (Authorization: Bearer token)
     """
-    db = get_db()
+    try:
+        db = get_db()
 
-    # Try Firebase token from Authorization header (frontend call)
-    uid = None
-    auth_header = request.headers.get("Authorization", "")
-    if auth_header.startswith("Bearer "):
-        try:
-            import firebase_admin.auth as fb_auth
-            decoded = fb_auth.verify_id_token(auth_header[7:])
-            uid = decoded.get("uid")
-        except Exception as e:
-            uid = None  # token invalid or expired — fall through to owner lookup
+        # Try Firebase token from Authorization header (frontend call)
+        uid = None
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            try:
+                import firebase_admin.auth as fb_auth
+                decoded = fb_auth.verify_id_token(auth_header[7:])
+                uid = decoded.get("uid")
+            except Exception as token_err:
+                print(f"Token decode failed (falling back to owner lookup): {token_err}")
+                uid = None
 
-    # Fall back to device owner lookup (ESP32 call — no auth header)
-    if not uid:
-        uid = db.child("devices").child(data.device_id).child("owner").get()
+        # Fall back to device owner lookup (ESP32 call — no auth header)
+        if not uid:
+            uid = db.child("devices").child(data.device_id).child("owner").get()
 
-    if not uid:
-        raise HTTPException(status_code=404, detail="Device not registered")
+        if not uid:
+            raise HTTPException(status_code=404, detail="Device not registered")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"log_outage ERROR: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
     record = {
         "device_id":    data.device_id,
