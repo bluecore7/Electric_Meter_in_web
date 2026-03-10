@@ -190,6 +190,25 @@
                 </div>
                 <div class="calendar-grid" id="calendarGrid"></div>
             </div>
+
+            <!-- OUTAGE SUMMARY CARD -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>🔴 Power Interruptions</h3>
+                    <span class="auto-badge" id="outageBadge">Loading...</span>
+                </div>
+                <div class="outage-kpi-row">
+                    <div class="outage-kpi"><span class="outage-kpi-val red-text" id="dashTotalOutages">—</span><span
+                            class="outage-kpi-label">Total Outages</span></div>
+                    <div class="outage-kpi"><span class="outage-kpi-val amber-text" id="dashTotalDowntime">—</span><span
+                            class="outage-kpi-label">Total Downtime</span></div>
+                    <div class="outage-kpi"><span class="outage-kpi-val" id="dashLongestOutage">—</span><span
+                            class="outage-kpi-label">Longest Outage</span></div>
+                    <div class="outage-kpi"><span class="outage-kpi-val" id="dashAvgOutage">—</span><span
+                            class="outage-kpi-label">Avg Duration</span></div>
+                </div>
+                <div id="dashOutageList" class="outage-mini-list"></div>
+            </div>
         </div>
 
         <!-- ===== PAGE 2: STATISTICS ===== -->
@@ -197,7 +216,7 @@
             <div class="page-header">
                 <div>
                     <h2 class="page-title">Statistics</h2>
-                    <p class="page-sub">Hourly & daily usage patterns</p>
+                    <p class="page-sub">Hourly &amp; daily usage patterns</p>
                 </div>
                 <div class="stat-controls">
                     <button class="btn-secondary-sm active-btn" id="btnToday"
@@ -207,7 +226,6 @@
                     <button class="btn-secondary-sm" id="btnWeek" onclick="setStatView('week')">7 Days</button>
                 </div>
             </div>
-
             <div class="stats-kpi-row">
                 <div class="mini-kpi"><span class="mini-label">Peak Power</span><span class="mini-val amber-text"
                         id="statPeak">—</span></div>
@@ -220,7 +238,6 @@
                 <div class="mini-kpi"><span class="mini-label">Anomalies</span><span class="mini-val red-text"
                         id="statAnomalies">0</span></div>
             </div>
-
             <div class="stats-grid">
                 <div class="card span-2">
                     <div class="card-header">
@@ -241,13 +258,97 @@
                     <div class="chart-wrapper"><canvas id="voltageStabilityChart"></canvas></div>
                 </div>
             </div>
-
+            <!-- ML PREDICTIONS PANEL -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>🤖 ML Model Predictions</h3><span class="auto-badge">Client-side inference</span>
+                </div>
+                <div class="ml-grid">
+                    <div class="ml-block">
+                        <div class="ml-model-name">Isolation Forest</div>
+                        <div class="ml-model-sub">Power Anomaly Detection</div>
+                        <div class="ml-result-row">
+                            <div class="ml-score-box"><span class="ml-score-val" id="mlAnomalyPct">—</span><span
+                                    class="ml-score-label">anomaly rate</span></div>
+                            <div class="ml-detail">
+                                <div class="ml-detail-row"><span>Readings analysed</span><span
+                                        id="mlReadingsCount">—</span></div>
+                                <div class="ml-detail-row"><span>Flagged readings</span><span id="mlFlaggedCount"
+                                        class="red-text">—</span></div>
+                                <div class="ml-detail-row"><span>Verdict</span><span id="mlAnomalyVerdict"
+                                        class="green-text">—</span></div>
+                            </div>
+                        </div>
+                        <div class="ml-mechansim">Builds random trees. Anomalies isolated in fewer splits — shorter path
+                            = more abnormal. Top 5% flagged.</div>
+                    </div>
+                    <div class="ml-block">
+                        <div class="ml-model-name">KMeans Clustering</div>
+                        <div class="ml-model-sub">Load Type Classification</div>
+                        <div class="ml-result-row">
+                            <div class="ml-score-box"><span class="ml-score-val" id="mlCurrentLoad">—</span><span
+                                    class="ml-score-label">current load</span></div>
+                            <div class="ml-detail">
+                                <div class="ml-detail-row"><span>Standby hours</span><span id="mlStandby">—</span></div>
+                                <div class="ml-detail-row"><span>Light load hours</span><span id="mlLight">—</span>
+                                </div>
+                                <div class="ml-detail-row"><span>Medium / Heavy hrs</span><span id="mlHeavy">—</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="ml-mechansim">Groups readings into 4 clusters by power + current + time. Labels by
+                            avg power: Standby &lt;100W → Heavy 2000W+.</div>
+                    </div>
+                    <div class="ml-block">
+                        <div class="ml-model-name">Random Forest</div>
+                        <div class="ml-model-sub">High Bill Risk Predictor</div>
+                        <div class="ml-result-row">
+                            <div class="ml-score-box"><span class="ml-score-val" id="mlBillRisk">—</span><span
+                                    class="ml-score-label">bill risk</span></div>
+                            <div class="ml-detail">
+                                <div class="ml-detail-row"><span>Projected 30-day units</span><span
+                                        id="mlProjected">—</span></div>
+                                <div class="ml-detail-row"><span>Projected bill</span><span id="mlProjectedBill"
+                                        class="amber-text">—</span></div>
+                                <div class="ml-detail-row"><span>Recommendation</span><span id="mlRecommend"
+                                        class="green-text">—</span></div>
+                            </div>
+                        </div>
+                        <div class="ml-mechansim">200 trees vote on 30-day rolling usage exceeding 300 kWh. Extrapolates
+                            current hourly avg to full month.</div>
+                    </div>
+                </div>
+            </div>
             <div class="card">
                 <div class="card-header">
                     <h3>⚠ Anomaly Log</h3><span class="auto-badge">Auto-detected</span>
                 </div>
                 <div id="anomalyTable">
                     <div class="empty-state">No anomalies detected in this period</div>
+                </div>
+            </div>
+            <!-- OUTAGE LOG TABLE -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>🔴 Power Outage Log</h3><span class="auto-badge">From device</span>
+                </div>
+                <div class="hist-table-wrap">
+                    <table class="hist-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Outage Started</th>
+                                <th>Power Restored</th>
+                                <th>Duration</th>
+                                <th>Energy Reset</th>
+                            </tr>
+                        </thead>
+                        <tbody id="outageTableBody">
+                            <tr>
+                                <td colspan="5" class="empty-td">No outages recorded</td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>

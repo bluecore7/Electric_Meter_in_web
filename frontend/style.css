@@ -576,3 +576,73 @@ select option { background: #0d1626; }
   .nav-tabs { display: none !important; }
   .mobile-tabs { display: flex !important; }
 }
+
+/* ============================================================
+   OUTAGE CARDS
+   ============================================================ */
+.outage-kpi-row {
+  display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap;
+}
+.outage-kpi {
+  flex: 1; min-width: 100px;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  background: rgba(0,0,0,0.2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 14px 10px;
+}
+.outage-kpi-val {
+  font-family: 'Space Mono', monospace; font-size: 1.3rem; font-weight: 700;
+}
+.outage-kpi-label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-dim);
+}
+.outage-mini-list { display: flex; flex-direction: column; gap: 6px; }
+.outage-mini-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 12px; border-radius: 8px; font-size: 0.82rem;
+  background: rgba(248,113,113,0.05); border: 1px solid rgba(248,113,113,0.12);
+}
+.outage-mini-time { font-family: 'Space Mono', monospace; font-size: 11px; color: var(--text-dim); }
+.outage-mini-dur  { color: var(--red); font-weight: 700; font-family: 'Space Mono', monospace; font-size: 11px; }
+.outage-mini-restored { color: var(--green); font-size: 11px; }
+
+/* ============================================================
+   ML PREDICTIONS PANEL
+   ============================================================ */
+.ml-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;
+}
+.ml-block {
+  background: rgba(0,0,0,0.25); border: 1px solid var(--border);
+  border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 10px;
+}
+.ml-model-name {
+  font-family: 'Rajdhani', sans-serif; font-size: 1rem; font-weight: 700; color: var(--amber);
+  letter-spacing: 0.5px;
+}
+.ml-model-sub { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.8px; margin-top: -6px; }
+.ml-result-row { display: flex; gap: 12px; align-items: flex-start; }
+.ml-score-box {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: var(--amber-dim); border: 1px solid rgba(251,191,36,0.2);
+  border-radius: 8px; padding: 10px 14px; min-width: 80px; flex-shrink: 0;
+}
+.ml-score-val {
+  font-family: 'Space Mono', monospace; font-size: 1.3rem; font-weight: 700; color: var(--amber);
+  line-height: 1;
+}
+.ml-score-label { font-size: 9px; color: var(--text-dim); margin-top: 4px; text-align: center; }
+.ml-detail { display: flex; flex-direction: column; gap: 5px; flex: 1; }
+.ml-detail-row {
+  display: flex; justify-content: space-between; font-size: 11px;
+  color: var(--text-dim); padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+.ml-detail-row span:last-child { font-family: 'Space Mono', monospace; font-size: 11px; color: var(--text); }
+.ml-mechansim {
+  font-size: 10px; color: var(--text-muted); line-height: 1.6;
+  border-top: 1px solid var(--border); padding-top: 8px; margin-top: 4px;
+}
+
+@media (max-width: 900px) {
+  .ml-grid { grid-template-columns: 1fr; }
+  .outage-kpi-row { grid-template-columns: repeat(2, 1fr); display: grid; }
+}
