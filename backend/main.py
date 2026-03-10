@@ -447,90 +447,130 @@ def stats_summary(uid=Depends(verify_user)):
 def log_outage(data: OutagePayload, request: Request):
     """
     Records a power outage.
+
     Called by:
-      - ESP32 on power restore (no auth header) — looks up owner from device
-      - Frontend when it detects device went offline (Authorization: Bearer token)
+      - ESP32 on power restore (no auth header)
+      - Frontend when it detects device offline
     """
+
     try:
         db = get_db()
 
-        # Try Firebase token from Authorization header (frontend call)
         uid = None
         auth_header = request.headers.get("Authorization", "")
+
+        # ----------------------------------------------------
+        # Try Firebase token (frontend call)
+        # ----------------------------------------------------
         if auth_header.startswith("Bearer "):
             try:
                 import firebase_admin.auth as fb_auth
                 decoded = fb_auth.verify_id_token(auth_header[7:])
                 uid = decoded.get("uid")
             except Exception as token_err:
-                print(f"Token decode failed (falling back to owner lookup): {token_err}")
+                print(f"Token decode failed: {token_err}")
                 uid = None
 
-        # Fall back to device owner lookup (ESP32 call — no auth header)
+        # ----------------------------------------------------
+        # Fallback: lookup owner from device (ESP32 call)
+        # ----------------------------------------------------
         if not uid:
-            uid = db.child("devices").child(data.device_id).child("owner").get()
+            owner_snapshot = db.child("devices").child(data.device_id).child("owner").get()
+            uid = owner_snapshot.val() if owner_snapshot else None
 
         if not uid:
             raise HTTPException(status_code=404, detail="Device not registered")
 
     except HTTPException:
         raise
+
     except Exception as e:
         print(f"log_outage ERROR: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+    # --------------------------------------------------------
+    # Create outage record
+    # --------------------------------------------------------
     record = {
-        "device_id":    data.device_id,
-        "start_ts":     data.start_ts,
-        "end_ts":       data.end_ts,
-        "duration":     data.duration,
+        "device_id": data.device_id,
+        "start_ts": data.start_ts,
+        "end_ts": data.end_ts,
+        "duration": data.duration,
         "duration_min": round(data.duration / 60, 2),
-        "start_human":  ts_to_ist(data.start_ts).strftime("%d %b %Y, %I:%M %p IST"),
-        "end_human":    ts_to_ist(data.end_ts).strftime("%d %b %Y, %I:%M %p IST"),
-        "logged_at":    int(time.time()),
+        "start_human": ts_to_ist(data.start_ts).strftime("%d %b %Y, %I:%M %p IST"),
+        "end_human": ts_to_ist(data.end_ts).strftime("%d %b %Y, %I:%M %p IST"),
+        "logged_at": int(time.time()),
     }
 
-    # Store under device AND user (cross-device access)
+    # --------------------------------------------------------
+    # Store under device AND user
+    # --------------------------------------------------------
     db.child("devices").child(data.device_id).child("outages").push(record)
-    db.child("users").child(owner).child("outages").push(record)
+    db.child("users").child(uid).child("outages").push(record)
 
-    # Update user's outage stats aggregate
-    stats_ref = db.child("users").child(owner).child("outage_stats")
-    existing  = stats_ref.get() or {}
+    # --------------------------------------------------------
+    # Update outage stats
+    # --------------------------------------------------------
+    stats_ref = db.child("users").child(uid).child("outage_stats")
+    existing = stats_ref.get().val() or {}
+
     stats_ref.set({
-        "total_outages":      existing.get("total_outages", 0) + 1,
+        "total_outages": existing.get("total_outages", 0) + 1,
         "total_duration_sec": existing.get("total_duration_sec", 0) + data.duration,
-        "longest_sec":        max(existing.get("longest_sec", 0), data.duration),
-        "last_outage_ts":     data.start_ts,
-        "last_restored_ts":   data.end_ts,
+        "longest_sec": max(existing.get("longest_sec", 0), data.duration),
+        "last_outage_ts": data.start_ts,
+        "last_restored_ts": data.end_ts,
     })
 
-    return {"status": "ok", "duration_min": record["duration_min"]}
-
-@app.get("/outages", tags=["Outage"])
-def get_outages(uid=Depends(verify_user), limit: int = Query(default=50, le=200)):
-    db = get_db()
-    raw = db.child("users").child(uid).child("outages").get() or {}
-    if not raw:
-        return []
-    outages = sorted(raw.values(), key=lambda x: x.get("start_ts", 0), reverse=True)
-    return outages[:limit]
-
-@app.get("/outages/stats", tags=["Outage"])
-def outage_stats(uid=Depends(verify_user)):
-    db = get_db()
-    stats = db.child("users").child(uid).child("outage_stats").get() or {}
-    total = stats.get("total_outages", 0)
-    total_sec = stats.get("total_duration_sec", 0)
     return {
-        "total_outages":      total,
-        "total_downtime_min": round(total_sec / 60, 2),
-        "longest_min":        round(stats.get("longest_sec", 0) / 60, 2),
-        "avg_duration_min":   round((total_sec / total / 60), 2) if total > 0 else 0,
-        "last_outage_ts":     stats.get("last_outage_ts", 0),
-        "last_restored_ts":   stats.get("last_restored_ts", 0),
+        "status": "ok",
+        "duration_min": record["duration_min"]
     }
 
+
+# ============================================================
+#  GET USER OUTAGES
+# ============================================================
+@app.get("/outages", tags=["Outage"])
+def get_outages(uid=Depends(verify_user), limit: int = Query(default=50, le=200)):
+
+    db = get_db()
+
+    raw = db.child("users").child(uid).child("outages").get().val() or {}
+
+    if not raw:
+        return []
+
+    outages = sorted(
+        raw.values(),
+        key=lambda x: x.get("start_ts", 0),
+        reverse=True
+    )
+
+    return outages[:limit]
+
+
+# ============================================================
+#  OUTAGE STATS
+# ============================================================
+@app.get("/outages/stats", tags=["Outage"])
+def outage_stats(uid=Depends(verify_user)):
+
+    db = get_db()
+
+    stats = db.child("users").child(uid).child("outage_stats").get().val() or {}
+
+    total = stats.get("total_outages", 0)
+    total_sec = stats.get("total_duration_sec", 0)
+
+    return {
+        "total_outages": total,
+        "total_downtime_min": round(total_sec / 60, 2),
+        "longest_min": round(stats.get("longest_sec", 0) / 60, 2),
+        "avg_duration_min": round((total_sec / total / 60), 2) if total > 0 else 0,
+        "last_outage_ts": stats.get("last_outage_ts", 0),
+        "last_restored_ts": stats.get("last_restored_ts", 0),
+    }
 # ============================================================
 #  BILLING — Fully persistent, all records in Firebase
 # ============================================================
