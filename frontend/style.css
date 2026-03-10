@@ -523,3 +523,58 @@ select option { background: #0d1626; }
 .ml-score-val.amber-text  { color: var(--amber) !important; }
 .ml-score-val.red-text    { color: var(--red)   !important; }
 .ml-score-val.blue-text   { color: var(--blue)  !important; }
+
+/* ── STAT KPI STRIP (cleaner than mini-kpi grid) ── */
+.stat-kpi-strip {
+  display: flex; gap: 10px; margin-bottom: 16px;
+}
+.skpi {
+  flex: 1; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.skpi.amber { border-color: rgba(251,191,36,0.2); }
+.skpi.green { border-color: rgba(52,211,153,0.2); }
+.skpi.red   { border-color: rgba(248,113,113,0.2); }
+.skpi-val {
+  font-family: 'Space Mono', monospace; font-size: 1.1rem; font-weight: 700;
+}
+.skpi.amber .skpi-val { color: var(--amber); }
+.skpi.green .skpi-val { color: var(--green); }
+.skpi.red   .skpi-val { color: var(--red);   }
+.skpi-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.7px; color: var(--text-dim); font-weight: 600; }
+
+/* ── 2-col stats grid ── */
+.stats-grid-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+@media (max-width: 768px) { .stats-grid-2col { grid-template-columns: 1fr; } }
+
+/* ── COMPACT ML GRID ── */
+.ml-compact-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+.mlc-block { background: rgba(0,0,0,0.15); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+.mlc-top { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
+.mlc-name { font-family: 'Rajdhani', sans-serif; font-size: 0.95rem; font-weight: 700; color: var(--amber); }
+.mlc-sub  { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
+.mlc-score {
+  font-family: 'Space Mono', monospace; font-size: 1.1rem; font-weight: 700; color: var(--amber);
+  background: var(--amber-d); border: 1px solid rgba(251,191,36,0.2); border-radius: 8px;
+  padding: 6px 10px; min-width: 60px; text-align: center; flex-shrink: 0;
+}
+.mlc-rows { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.mlc-row { display: flex; justify-content: space-between; font-size: 11px; padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.03); color: var(--text-dim); }
+.mlc-row span:last-child { font-family: 'Space Mono', monospace; font-size: 11px; color: var(--text); }
+.mlc-explain { font-size: 10px; color: #475569; line-height: 1.7; }
+.mlc-explain em { color: #64748b; font-style: italic; }
+@media (max-width: 900px) { .ml-compact-grid { grid-template-columns: 1fr; } }
+
+/* ── STAT TABS (Anomalies / Outages) ── */
+.tab-row { display: flex; gap: 4px; }
+.tab-btn {
+  background: transparent; border: none; color: var(--text-dim); cursor: pointer;
+  padding: 5px 12px; border-radius: 6px; font-size: 0.8rem; font-family: 'Rajdhani', sans-serif;
+  font-weight: 600; transition: all 0.18s;
+}
+.tab-btn:hover  { background: rgba(255,255,255,0.05); color: var(--text); }
+.active-tab     { background: var(--amber-d) !important; color: var(--amber) !important; }
+
+/* ── stat period label ── */
+#statPeriodLabel { color: var(--text-dim); font-size: 0.82rem; }

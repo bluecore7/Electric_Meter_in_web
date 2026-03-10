@@ -304,7 +304,7 @@
             <div class="page-header">
                 <div>
                     <h2 class="page-title">Statistics</h2>
-                    <p class="page-sub">Historical analysis — synced from cloud</p>
+                    <p class="page-sub" id="statPeriodLabel">Today · IST</p>
                 </div>
                 <div class="stat-controls">
                     <button class="btn-secondary-sm active-btn" id="btnToday"
@@ -313,145 +313,155 @@
                         onclick="setStatView('yesterday')">Yesterday</button>
                     <button class="btn-secondary-sm" id="btn7d" onclick="setStatView('7d')">7 Days</button>
                     <button class="btn-secondary-sm" id="btn30d" onclick="setStatView('30d')">30 Days</button>
-                    <button class="btn-secondary-sm" id="btnExport" onclick="exportCSV()">↓ Export</button>
+                    <button class="btn-secondary-sm" id="btnExport" onclick="exportCSV()">↓ CSV</button>
                 </div>
             </div>
 
-            <!-- STAT KPIs — loaded from Firebase -->
-            <div class="stats-kpi-row">
-                <div class="mini-kpi"><span class="mk-label">Peak Power</span><span class="mk-val amber-text"
-                        id="statPeak">—</span></div>
-                <div class="mini-kpi"><span class="mk-label">Avg Power</span><span class="mk-val" id="statAvg">—</span>
+            <!-- 4 essential KPIs only -->
+            <div class="stat-kpi-strip">
+                <div class="skpi amber"><span class="skpi-val" id="statPeak">—</span><span class="skpi-lbl">Peak
+                        Power</span></div>
+                <div class="skpi"><span class="skpi-val" id="statAvg">—</span><span class="skpi-lbl">Avg Power</span>
                 </div>
-                <div class="mini-kpi"><span class="mk-label">Min Voltage</span><span class="mk-val blue-text"
-                        id="statMinV">—</span></div>
-                <div class="mini-kpi"><span class="mk-label">Max Voltage</span><span class="mk-val blue-text"
-                        id="statMaxV">—</span></div>
-                <div class="mini-kpi"><span class="mk-label">Total Energy</span><span class="mk-val green-text"
-                        id="statTotalEnergy">—</span></div>
-                <div class="mini-kpi"><span class="mk-label">Anomaly Hours</span><span class="mk-val red-text"
-                        id="statAnomalies">—</span></div>
+                <div class="skpi green"><span class="skpi-val" id="statTotalEnergy">—</span><span class="skpi-lbl">Total
+                        Energy</span></div>
+                <div class="skpi red"><span class="skpi-val" id="statAnomalies">—</span><span class="skpi-lbl">Anomaly
+                        Hours</span></div>
             </div>
 
-            <div class="stats-grid">
-                <div class="card span-2">
-                    <div class="card-header">
-                        <h3>Hourly Energy Consumption (kWh)</h3><span class="cloud-badge">☁ From Firebase</span>
+            <!-- Main chart — energy by hour -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>Energy by Hour (kWh)</h3>
+                    <div style="display:flex;gap:8px;align-items:center">
+                        <span class="cloud-badge">☁ Firebase</span>
+                        <button class="btn-secondary-sm" onclick="loadStatisticsPage()">↻</button>
                     </div>
-                    <div class="chart-wrapper-tall"><canvas id="hourlyEnergyChart"></canvas></div>
                 </div>
+                <div class="chart-wrapper-tall"><canvas id="hourlyEnergyChart"></canvas></div>
+            </div>
+
+            <!-- Side-by-side: power + voltage -->
+            <div class="stats-grid-2col">
                 <div class="card">
                     <div class="card-header">
-                        <h3>Avg Power per Hour (W)</h3>
+                        <h3>Avg Power (W)</h3>
                     </div>
                     <div class="chart-wrapper"><canvas id="hourlyPowerChart"></canvas></div>
                 </div>
                 <div class="card">
                     <div class="card-header">
                         <h3>Voltage Band</h3>
+                        <span style="font-size:10px;color:var(--text-dim)">blue=max · red=min</span>
                     </div>
                     <div class="chart-wrapper"><canvas id="voltageStabilityChart"></canvas></div>
                 </div>
             </div>
 
-            <!-- ML PANEL -->
-            <div class="card ml-panel">
-                <div class="card-header">
-                    <h3>🤖 ML Predictions</h3>
+            <!-- ML — collapsible, compact -->
+            <div class="card">
+                <div class="card-header" onclick="toggleML()" style="cursor:pointer">
+                    <h3>🤖 ML Insights</h3>
                     <div style="display:flex;gap:8px;align-items:center">
                         <span class="cloud-badge">☁ Cloud data</span>
-                        <button class="btn-primary-sm" onclick="loadStatisticsPage()">↻ Refresh</button>
+                        <span id="mlToggleIcon" style="color:var(--text-dim);font-size:12px">▼ show</span>
                     </div>
                 </div>
-                <div class="ml-grid">
-                    <div class="ml-block">
-                        <div class="ml-name">Isolation Forest</div>
-                        <div class="ml-desc">Power Anomaly Detection</div>
-                        <div class="ml-body">
-                            <div class="ml-score-wrap">
-                                <div class="ml-score-val" id="mlAnomalyPct">—</div>
-                                <div class="ml-score-lbl">anomaly rate</div>
+                <div id="mlBody" style="display:none">
+                    <div class="ml-compact-grid">
+                        <div class="mlc-block">
+                            <div class="mlc-top">
+                                <div>
+                                    <div class="mlc-name">Isolation Forest</div>
+                                    <div class="mlc-sub">Anomaly Detection</div>
+                                </div>
+                                <div class="mlc-score" id="mlAnomalyPct">—</div>
                             </div>
-                            <div class="ml-rows">
-                                <div class="ml-row"><span>Records analysed</span><span id="mlReadings">—</span></div>
-                                <div class="ml-row"><span>Flagged readings</span><span id="mlFlagged"
-                                        class="red-text">—</span></div>
-                                <div class="ml-row"><span>Verdict</span><span id="mlVerdict">—</span></div>
+                            <div class="mlc-rows">
+                                <div class="mlc-row"><span>Hours analysed</span><span id="mlReadings">—</span></div>
+                                <div class="mlc-row"><span>Flagged</span><span id="mlFlagged">—</span></div>
+                                <div class="mlc-row"><span>Verdict</span><span id="mlVerdict">—</span></div>
                             </div>
-                        </div>
-                        <div class="ml-how">Random trees isolate each point. Anomalies need fewer splits — shortest path
-                            = most abnormal. Top 5% flagged.</div>
-                    </div>
-                    <div class="ml-block">
-                        <div class="ml-name">KMeans Clustering</div>
-                        <div class="ml-desc">Load Type Classification</div>
-                        <div class="ml-body">
-                            <div class="ml-score-wrap">
-                                <div class="ml-score-val" id="mlCurrentLoad">—</div>
-                                <div class="ml-score-lbl">current load</div>
-                            </div>
-                            <div class="ml-rows">
-                                <div class="ml-row"><span>Standby periods</span><span id="mlStandby">—</span></div>
-                                <div class="ml-row"><span>Light / Medium</span><span id="mlMedium">—</span></div>
-                                <div class="ml-row"><span>Heavy load periods</span><span id="mlHeavy">—</span></div>
+                            <div class="mlc-explain">
+                                Builds random dividing lines across your power data. Unusual readings
+                                get isolated quickly (few splits). Normal readings take many splits.
+                                <em>Short path = anomaly.</em>
                             </div>
                         </div>
-                        <div class="ml-how">K=4 clusters by power + current + hour-of-day. Each cluster labelled by avg
-                            power: &lt;100W Standby → 2000W+ Heavy.</div>
-                    </div>
-                    <div class="ml-block">
-                        <div class="ml-name">Random Forest</div>
-                        <div class="ml-desc">30-Day Bill Risk Forecast</div>
-                        <div class="ml-body">
-                            <div class="ml-score-wrap">
-                                <div class="ml-score-val" id="mlBillRisk">—</div>
-                                <div class="ml-score-lbl">bill risk</div>
+                        <div class="mlc-block">
+                            <div class="mlc-top">
+                                <div>
+                                    <div class="mlc-name">KMeans Clusters</div>
+                                    <div class="mlc-sub">Load Classification</div>
+                                </div>
+                                <div class="mlc-score" id="mlCurrentLoad">—</div>
                             </div>
-                            <div class="ml-rows">
-                                <div class="ml-row"><span>Projected units</span><span id="mlProjUnits">—</span></div>
-                                <div class="ml-row"><span>Projected bill</span><span id="mlProjBill"
-                                        class="amber-text">—</span></div>
-                                <div class="ml-row"><span>Action</span><span id="mlAction">—</span></div>
+                            <div class="mlc-rows">
+                                <div class="mlc-row"><span>Standby (&lt;100W)</span><span id="mlStandby">—</span></div>
+                                <div class="mlc-row"><span>Light–Medium</span><span id="mlMedium">—</span></div>
+                                <div class="mlc-row"><span>Heavy (2000W+)</span><span id="mlHeavy">—</span></div>
+                            </div>
+                            <div class="mlc-explain">
+                                Groups hours into 4 natural clusters. Midnight hours cluster together,
+                                AC-on hours cluster separately. <em>Finds groups without labels.</em>
                             </div>
                         </div>
-                        <div class="ml-how">200 trees vote on 30-day rolling units exceeding 300 kWh. Extrapolates
-                            current hourly avg to full month.</div>
+                        <div class="mlc-block">
+                            <div class="mlc-top">
+                                <div>
+                                    <div class="mlc-name">Random Forest</div>
+                                    <div class="mlc-sub">30-Day Bill Forecast</div>
+                                </div>
+                                <div class="mlc-score" id="mlBillRisk">—</div>
+                            </div>
+                            <div class="mlc-rows">
+                                <div class="mlc-row"><span>Projected kWh</span><span id="mlProjUnits">—</span></div>
+                                <div class="mlc-row"><span>Projected bill</span><span id="mlProjBill">—</span></div>
+                                <div class="mlc-row"><span>Advice</span><span id="mlAction">—</span></div>
+                            </div>
+                            <div class="mlc-explain">
+                                200 decision trees vote: will you exceed 300 kWh this month?
+                                Extrapolates your current hourly average to 30 days.
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <!-- ANOMALY LOG -->
+            <!-- Anomaly + Outage — tabbed to save space -->
             <div class="card">
                 <div class="card-header">
-                    <h3>⚠ Anomaly Log</h3><span class="cloud-badge">☁ Persistent</span>
+                    <div class="tab-row">
+                        <button class="tab-btn active-tab" id="tabAnomaly" onclick="switchStatTab('anomaly')">⚠
+                            Anomalies</button>
+                        <button class="tab-btn" id="tabOutage" onclick="switchStatTab('outage')">🔴 Outages</button>
+                    </div>
+                    <span class="cloud-badge">☁ Persistent</span>
                 </div>
-                <div id="anomalyTable">
-                    <div class="empty-state">Loading anomaly data...</div>
+                <div id="tabPaneAnomaly">
+                    <div id="anomalyTable">
+                        <div class="empty-state">Loading...</div>
+                    </div>
                 </div>
-            </div>
-
-            <!-- OUTAGE LOG -->
-            <div class="card">
-                <div class="card-header">
-                    <h3>🔴 Power Outage History</h3><span class="cloud-badge">☁ All devices</span>
-                </div>
-                <div class="tbl-wrap">
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>#</th>
-                                <th>Started</th>
-                                <th>Restored</th>
-                                <th>Duration</th>
-                                <th>Energy Impact</th>
-                            </tr>
-                        </thead>
-                        <tbody id="outageTableBody">
-                            <tr>
-                                <td colspan="5" class="empty-td">Loading...</td>
-                            </tr>
-                        </tbody>
-                    </table>
+                <div id="tabPaneOutage" style="display:none">
+                    <div class="tbl-wrap">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Started (IST)</th>
+                                    <th>Restored (IST)</th>
+                                    <th>Duration</th>
+                                    <th>Energy Impact</th>
+                                </tr>
+                            </thead>
+                            <tbody id="outageTableBody">
+                                <tr>
+                                    <td colspan="5" class="empty-td">Loading...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>
