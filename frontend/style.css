@@ -578,3 +578,29 @@ select option { background: #0d1626; }
 
 /* ── stat period label ── */
 #statPeriodLabel { color: var(--text-dim); font-size: 0.82rem; }
+
+/* ── OFFLINE BANNER ── */
+.offline-banner {
+  display: flex; align-items: center; gap: 14px;
+  background: rgba(248,113,113,0.08);
+  border: 1px solid rgba(248,113,113,0.3);
+  border-radius: 12px; padding: 14px 18px;
+  margin-bottom: 16px; animation: pulseRed 2s infinite;
+}
+@keyframes pulseRed {
+  0%,100% { border-color: rgba(248,113,113,0.3); }
+  50%      { border-color: rgba(248,113,113,0.7); }
+}
+.ob-icon { font-size: 1.4rem; }
+.ob-text { display: flex; flex-direction: column; gap: 2px; }
+.ob-text strong { color: var(--red); font-size: 0.9rem; font-family: 'Rajdhani', sans-serif; font-weight: 700; letter-spacing: 0.5px; }
+.ob-text span   { font-size: 12px; color: var(--text-dim); }
+.ob-timer       { color: var(--red); font-family: 'Space Mono', monospace; font-weight: 700; }
+
+/* ── OFFLINE GAUGE / PILL ── */
+.offline-pill {
+  background: rgba(248,113,113,0.12) !important;
+  color: var(--red) !important;
+  border-color: rgba(248,113,113,0.3) !important;
+}
+.offline-dot { background: var(--red) !important; animation: none !important; }
