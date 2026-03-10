@@ -272,3 +272,71 @@ def take_reading(uid=Depends(verify_user)):
 def billing_history(uid=Depends(verify_user)):
     db = get_db()
     return db.child("users").child(uid).child("bills").get() or {}
+
+# ============================================================
+#  POWER OUTAGE LOGGING — ESP32 posts here when power returns
+# ============================================================
+class OutagePayload(BaseModel):
+    device_id: str
+    start_ts:  int       # Unix timestamp when power went off
+    end_ts:    int       # Unix timestamp when power came back
+    duration:  int       # seconds
+
+@app.post("/device/outage")
+def log_outage(data: OutagePayload):
+    """
+    Called by ESP32 when power is restored after an outage.
+    Stores outage record under devices/{device_id}/outages/{key}
+    Also stores under users/{uid}/outages for dashboard lookup.
+    """
+    db = get_db()
+
+    # Find owner of this device
+    owner = db.child("devices").child(data.device_id).child("owner").get()
+
+    outage_record = {
+        "device_id": data.device_id,
+        "start_ts":  data.start_ts,
+        "end_ts":    data.end_ts,
+        "duration":  data.duration,
+        "duration_min": round(data.duration / 60, 2),
+        "logged_at": int(__import__("time").time())
+    }
+
+    # Save under device
+    db.child("devices").child(data.device_id).child("outages").push(outage_record)
+
+    # Save under user for easy dashboard lookup
+    if owner:
+        db.child("users").child(owner).child("outages").push(outage_record)
+
+    return {
+        "status": "ok",
+        "duration_min": outage_record["duration_min"]
+    }
+
+@app.get("/outages")
+def get_outages(uid=Depends(verify_user)):
+    """Return all recorded power outages for this user's device."""
+    db = get_db()
+    raw = db.child("users").child(uid).child("outages").get() or {}
+    if not raw:
+        return []
+    outages = list(raw.values())
+    return sorted(outages, key=lambda x: x.get("start_ts", 0), reverse=True)
+
+@app.get("/outages/stats")
+def outage_stats(uid=Depends(verify_user)):
+    """Summary stats: total outages, total downtime, longest outage."""
+    db = get_db()
+    raw = db.child("users").child(uid).child("outages").get() or {}
+    if not raw:
+        return {"total_outages": 0, "total_downtime_min": 0, "longest_min": 0}
+    outages = list(raw.values())
+    durations = [o.get("duration", 0) for o in outages]
+    return {
+        "total_outages":     len(outages),
+        "total_downtime_min": round(sum(durations) / 60, 2),
+        "longest_min":        round(max(durations) / 60, 2),
+        "avg_duration_min":   round((sum(durations) / len(durations)) / 60, 2)
+    }
