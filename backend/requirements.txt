@@ -1,4 +1,13 @@
+# Backend (used on Render/server)
 fastapi
 uvicorn
 firebase-admin
 pydantic
+
+# ML (used locally for ml_pipeline.py)
+pandas
+numpy
+scikit-learn
+matplotlib
+seaborn
+joblib
