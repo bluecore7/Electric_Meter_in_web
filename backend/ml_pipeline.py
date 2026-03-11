@@ -35,8 +35,10 @@ from sklearn.ensemble import IsolationForest, RandomForestClassifier
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report, confusion_matrix, mean_squared_error, r2_score
 import joblib
+import xgboost as xgb
 
 # ============================================================
 #  FIREBASE CONFIG
@@ -334,6 +336,198 @@ def train_bill_predictor(df: pd.DataFrame):
     return clf
 
 # ============================================================
+#  MODEL 5: POWER FORECASTING (PyTorch Neural Network)
+# ============================================================
+def train_forecasting_model(df: pd.DataFrame):
+    """
+    Train a PyTorch neural network to predict avg_power for the next 24 hours.
+    Uses the past 24 hours of avg_power as features.
+    Saves the model weights as a .pth file as requested.
+    """
+    try:
+        import torch
+        import torch.nn as nn
+        import torch.optim as optim
+    except ImportError:
+        print("\n[Power Forecaster] PyTorch not installed. Install with: pip install torch")
+        return None
+
+    df = df.copy().sort_values("datetime").reset_index(drop=True)
+    
+    # Create lag features (t-1 to t-23 and current t as lag_0)
+    for i in range(1, 24):
+        df[f'power_lag_{i}'] = df['avg_power'].shift(i)
+    df['power_lag_0'] = df['avg_power']
+    
+    # Predict next 24 hours (t+1 to t+24)
+    target_cols = []
+    for i in range(1, 25):
+        col = f'power_lead_{i}'
+        df[col] = df['avg_power'].shift(-i)
+        target_cols.append(col)
+        
+    feature_cols = [f'power_lag_{i}' for i in range(0, 24)] + ['hour_of_day', 'day_of_week', 'is_weekend']
+    
+    df_clean = df.dropna(subset=feature_cols + target_cols).copy()
+    
+    if len(df_clean) < 50:
+        print("\n[Power Forecaster] Not enough data to train forecaster (need >50 hours after shifting).")
+        return None
+        
+    X = df_clean[feature_cols].values
+    Y = df_clean[target_cols].values
+    
+    # Time-series split (don't shuffle)
+    split_idx = int(len(X) * 0.9)
+    X_train, X_test = X[:split_idx], X[split_idx:]
+    Y_train, Y_test = Y[:split_idx], Y[split_idx:]
+    
+    # Scale Data
+    scaler_X = StandardScaler()
+    scaler_Y = StandardScaler()
+    
+    X_train_s = scaler_X.fit_transform(X_train)
+    X_test_s = scaler_X.transform(X_test)
+    Y_train_s = scaler_Y.fit_transform(Y_train)
+    Y_test_s = scaler_Y.transform(Y_test)
+
+    # Convert to PyTorch Tensors
+    X_train_t = torch.tensor(X_train_s, dtype=torch.float32)
+    Y_train_t = torch.tensor(Y_train_s, dtype=torch.float32)
+    X_test_t = torch.tensor(X_test_s, dtype=torch.float32)
+    Y_test_t = torch.tensor(Y_test_s, dtype=torch.float32)
+
+    # Define simple Feedforward Network
+    class PowerForecasterNet(nn.Module):
+        def __init__(self, input_size, output_size):
+            super(PowerForecasterNet, self).__init__()
+            self.fc1 = nn.Linear(input_size, 64)
+            self.relu = nn.ReLU()
+            self.fc2 = nn.Linear(64, 64)
+            self.fc3 = nn.Linear(64, output_size)
+
+        def forward(self, x):
+            x = self.relu(self.fc1(x))
+            x = self.relu(self.fc2(x))
+            x = self.fc3(x)
+            return x
+
+    model = PowerForecasterNet(input_size=len(feature_cols), output_size=24)
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(model.parameters(), lr=0.005)
+
+    print("\n[Power Forecaster — PyTorch Neural Network]")
+    print("  Training for 100 epochs...")
+    
+    epochs = 100
+    for epoch in range(epochs):
+        model.train()
+        optimizer.zero_grad()
+        outputs = model(X_train_t)
+        loss = criterion(outputs, Y_train_t)
+        loss.backward()
+        optimizer.step()
+
+    model.eval()
+    with torch.no_grad():
+        test_outputs = model(X_test_t)
+        test_loss = criterion(test_outputs, Y_test_t)
+        
+        # Calculate R^2 score manually
+        y_mean = torch.mean(Y_test_t, dim=0)
+        ss_tot = torch.sum((Y_test_t - y_mean) ** 2)
+        ss_res = torch.sum((Y_test_t - test_outputs) ** 2)
+        r2 = 1 - ss_res / ss_tot
+        
+    print(f"  Test MSE Loss: {test_loss.item():.4f}")
+    print(f"  Test R^2 Score: {r2.item():.3f}")
+    
+    # Save the PyTorch Model state dict as .pth
+    os.makedirs("models", exist_ok=True)
+    torch.save(model.state_dict(), "models/power_forecaster.pth")
+    
+    # Also save the scalers and features utilizing joblib, as PyTorch expects just model weights
+    joblib.dump({
+        "scaler_X": scaler_X, 
+        "scaler_Y": scaler_Y, 
+        "features": feature_cols,
+        "input_size": len(feature_cols),
+        "output_size": 24
+    }, "models/power_forecaster_meta.pkl")
+
+    print("  ✓ Saved model weights to models/power_forecaster.pth")
+    print("  ✓ Saved scalers to models/power_forecaster_meta.pkl")
+    return model
+
+# ============================================================
+#  MODEL 6: POWER FORECASTING (XGBoost)
+# ============================================================
+def train_xgboost_forecaster(df: pd.DataFrame):
+    """
+    Train an XGBoost regressor to predict avg_power for the next hour (t+1).
+    Uses the past 24 hours of avg_power as lag features.
+    """
+    df = df.copy().sort_values("datetime").reset_index(drop=True)
+    
+    # Create lag features (t-1 to t-24)
+    for i in range(1, 25):
+        df[f'power_lag_{i}'] = df['avg_power'].shift(i)
+    
+    # Target: power at t+1
+    df['target_power'] = df['avg_power'].shift(-1)
+    
+    feature_cols = [f'power_lag_{i}' for i in range(1, 25)] + ['avg_power', 'hour_of_day', 'day_of_week', 'is_weekend']
+    
+    df_clean = df.dropna(subset=feature_cols + ['target_power']).copy()
+    
+    if len(df_clean) < 50:
+        print("\n[XGBoost Forecaster] Not enough data to train forecaster (need >50 hours after shifting).")
+        return None
+        
+    X = df_clean[feature_cols].values
+    y = df_clean['target_power'].values
+    
+    # Time-series split (don't shuffle)
+    split_idx = int(len(X) * 0.9)
+    X_train, X_test = X[:split_idx], X[split_idx:]
+    y_train, y_test = y[:split_idx], y[split_idx:]
+    
+    model = xgb.XGBRegressor(
+        n_estimators=500,
+        learning_rate=0.05,
+        max_depth=6,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        random_state=42,
+        n_jobs=-1,
+        early_stopping_rounds=50
+    )
+    
+    print("\n[Power Forecaster — XGBoost]")
+    print(f"  Training on {len(X_train)} samples, testing on {len(X_test)} samples...")
+    model.fit(
+        X_train, y_train,
+        eval_set=[(X_test, y_test)],
+        verbose=False
+    )
+    
+    y_pred = model.predict(X_test)
+    mse = mean_squared_error(y_test, y_pred)
+    r2 = r2_score(y_test, y_pred)
+    
+    print(f"  Test MSE: {mse:.2f}")
+    print(f"  Test R^2: {r2:.3f}")
+    
+    # Feature importance
+    importances = pd.Series(model.feature_importances_, index=feature_cols).sort_values(ascending=False)
+    print("  Top 5 features:")
+    print(importances.head(5).to_string())
+
+    joblib.dump({"model": model, "features": feature_cols}, "models/xgb_forecaster.pkl")
+    print("  ✓ Saved model to models/xgb_forecaster.pkl")
+    return model
+
+# ============================================================
 #  VISUALIZATIONS
 # ============================================================
 def plot_analysis(df: pd.DataFrame, save: bool = True):
@@ -463,14 +657,66 @@ def run_inference(df: pd.DataFrame):
         results["high_bill_probability"] = float(proba.mean())
         print(f"High bill probability: {results['high_bill_probability']*100:.1f}%")
 
+    # XGBoost Forecaster
+    if os.path.exists("models/xgb_forecaster.pkl"):
+        saved = joblib.load("models/xgb_forecaster.pkl")
+        model = saved["model"]
+        feature_cols = saved["features"]
+        
+        # We need the last 25 hours to create the 24 lag features + current power
+        if len(df) >= 25:
+            recent_df = df.copy().sort_values("datetime").tail(25).reset_index(drop=True)
+            
+            # Predict the "next hour" after the extremely last hour in the dataset
+            # Feature dict
+            feat_dict = {}
+            # Current power is the very last recorded power
+            current_idx = len(recent_df) - 1
+            feat_dict['avg_power'] = recent_df.loc[current_idx, 'avg_power']
+            feat_dict['hour_of_day'] = (recent_df.loc[current_idx, 'datetime'] + pd.Timedelta(hours=1)).hour
+            feat_dict['day_of_week'] = (recent_df.loc[current_idx, 'datetime'] + pd.Timedelta(hours=1)).dayofweek
+            feat_dict['is_weekend'] = 1 if feat_dict['day_of_week'] in [5, 6] else 0
+            
+            for i in range(1, 25): # lag_1 to lag_24
+                # lag_1 is the power 1 step before current, which is index `current_idx - i + 1`?
+                # Actually, in training: power_lag_1 = df['avg_power'].shift(1)
+                # So if predicting t+1, lag_1 is actually 'current' power (t).
+                # lag_2 is t-1, etc.
+                if i == 1:
+                    feat_dict[f'power_lag_{i}'] = recent_df.loc[current_idx, 'avg_power']
+                else:
+                    target_idx = current_idx - (i - 1)
+                    feat_dict[f'power_lag_{i}'] = recent_df.loc[target_idx, 'avg_power']
+            
+            # Convert dictionary to DataFrame for prediction
+            X_pred = pd.DataFrame([feat_dict], columns=feature_cols).values
+            prediction = model.predict(X_pred)[0]
+            
+            results["next_hour_power_prediction_w"] = float(prediction)
+            print(f"XGBoost next hour predicted power: {prediction:.2f} W")
+        else:
+            print("Not enough recent data (need 25 hours) for XGBoost Inference.")
+
     return df, results
 
 # ============================================================
 #  MAIN
 # ============================================================
+def load_uci_dataset(path="uci_hourly.csv") -> pd.DataFrame:
+    """Helper to load parsed UCI dataset."""
+    if not os.path.exists(path):
+        print(f"⚠ UCI dataset not found at {path}. Please run prep_uci_data.py first.")
+        return pd.DataFrame()
+        
+    df = pd.read_csv(path)
+    df["datetime"] = pd.to_datetime(df["hour"], format="%Y-%m-%d_%H")
+    print(f"✓ Loaded {len(df)} records from {path}")
+    return df
+
 def main():
     parser = argparse.ArgumentParser(description="EnergyFlow ML Pipeline")
     parser.add_argument("--mode", choices=["train", "predict", "export"], default="train")
+    parser.add_argument("--dataset", choices=["firebase", "uci"], default="firebase", help="Source of data for training")
     parser.add_argument("--device", default="ESP001")
     parser.add_argument("--days", type=int, default=1)
     args = parser.parse_args()
@@ -488,8 +734,23 @@ def main():
         return
 
     # Load data
-    df = export_data(args.device)
+    if args.dataset == "uci":
+        print("\nUsing UCI Dataset for training...")
+        df = load_uci_dataset()
+        if df.empty: return
+    else:
+        df = export_data(args.device)
+        
     df = engineer_features(df)
+    
+    # We still need to fill rolling feature NAs that happen on the first few rows
+    # rather than dropping them, to preserve data.
+    # The actual columns are expected to be numeric now
+    df.ffill(inplace=True)
+    df.bfill(inplace=True)
+    df.dropna(inplace=True)
+    df.reset_index(drop=True, inplace=True)
+    print(f"Data ready for training: {len(df)} records")
 
     if args.mode == "train":
         print("\n--- Voltage Anomaly Detection ---")
@@ -503,6 +764,12 @@ def main():
 
         print("\n--- Bill Predictor ---")
         train_bill_predictor(df)
+
+        print("\n--- Power Forecasting (PyTorch) ---")
+        train_forecasting_model(df)
+        
+        print("\n--- Power Forecasting (XGBoost) ---")
+        train_xgboost_forecaster(df)
 
         print("\n--- Generating Plots ---")
         plot_analysis(df)

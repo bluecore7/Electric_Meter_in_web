@@ -255,6 +255,7 @@ window.showPage = (page) => {
   const el = document.getElementById("page-" + page);
   if (el) el.classList.add("active");
 
+  if (page === "prediction") fetchPrediction();
   if (page === "statistics") loadStatisticsPage();
   if (page === "account") loadAccountPage();
   if (page === "charges") loadChargesPage();
@@ -2061,3 +2062,54 @@ function updateStatPeriodLabel() {
   };
   setText("statPeriodLabel", labels[statView] || "IST");
 }
+
+// ============================================================
+//  XGBoost Prediction Tab Logic
+// ============================================================
+let isPredicting = false;
+
+window.fetchPrediction = async () => {
+    if (isPredicting) return;
+    
+    const uiPower = document.getElementById("predPower");
+    const uiTrend = document.getElementById("predTrend");
+    const uiCurrent = document.getElementById("predCurrentPower");
+    const uiTime = document.getElementById("predTime");
+    
+    if (!uiPower) return;
+    
+    isPredicting = true;
+    uiPower.innerHTML = '<div class="loader" style="width:24px;height:24px;border-width:2px;display:inline-block"></div>';
+    uiTrend.innerText = "Analyzing recent lag features via XGBoost...";
+    uiTrend.style.color = "var(--text-dim)";
+    
+    try {
+        const res = await api('/ml/predict');
+        
+        if (res.error) {
+            uiPower.innerHTML = "Err";
+            uiCurrent.innerHTML = "—";
+            uiTrend.innerHTML = '?? <span style="color:var(--red)">' + res.error + '</span>';
+            if (res.error.includes("25 hours")) {
+                uiTrend.innerHTML += '<br><span style="font-size:11px;color:var(--amber)">Leave the ESP32 online to collect enough data.</span>';
+            }
+        } else {
+            uiPower.innerText = res.predicted_power_w;
+            uiCurrent.innerText = res.current_power_w + " W";
+            uiTime.innerText = res.prediction_time;
+            
+            if (res.trend === "increasing") {
+                uiTrend.innerHTML = '?? Expected to rise by <strong>+' + res.difference + ' W</strong> compared to current load.';
+                uiTrend.style.color = "var(--amber)";
+            } else {
+                uiTrend.innerHTML = '?? Expected to drop by <strong>' + res.difference + ' W</strong> compared to current load.';
+                uiTrend.style.color = "var(--green)";
+            }
+        }
+    } catch (e) {
+        uiPower.innerHTML = "—";
+        uiTrend.innerHTML = '<span style="color:var(--red)">Connection Error: ' + e.message + '</span>';
+    } finally {
+        isPredicting = false;
+    }
+};

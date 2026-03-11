@@ -604,3 +604,98 @@ select option { background: #0d1626; }
   border-color: rgba(248,113,113,0.3) !important;
 }
 .offline-dot { background: var(--red) !important; animation: none !important; }
+/* ==========================================================================
+   PREDICTION TAB STYLES
+   ========================================================================== */
+.prediction-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+    margin-top: 1rem;
+}
+
+@media(min-width: 900px) {
+    .prediction-grid {
+        grid-template-columns: 3fr 2fr;
+    }
+}
+
+.prediction-card {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    background: linear-gradient(145deg, rgba(30, 41, 59, 0.4), rgba(15, 23, 42, 0.6));
+    border: 1px solid rgba(167, 139, 250, 0.3);
+    box-shadow: 0 8px 32px rgba(167, 139, 250, 0.05);
+}
+
+.ai-badge {
+    background: rgba(167, 139, 250, 0.15);
+    color: var(--purple, #a78bfa);
+    border: 1px solid rgba(167, 139, 250, 0.4);
+    font-weight: 600;
+}
+
+.prediction-stage {
+    padding: 2.5rem 1.5rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    flex-grow: 1;
+}
+
+.pred-value {
+    font-family: `"Rajdhani`", sans-serif;
+    font-size: 4.5rem;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--white);
+    text-shadow: 0 0 20px rgba(167, 139, 250, 0.4);
+}
+
+.pred-unit {
+    font-size: 1.5rem;
+    color: var(--text-dim);
+    margin-left: 0.5rem;
+}
+
+.pred-trend {
+    margin-top: 1.5rem;
+    font-size: 1.1rem;
+    padding: 10px 20px;
+    background: rgba(0,0,0,0.3);
+    border-radius: 8px;
+}
+
+.prediction-footer {
+    display: flex;
+    justify-content: space-between;
+    padding: 1rem 1.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    background: rgba(0, 0, 0, 0.2);
+    font-size: 0.9rem;
+    color: var(--text-dim);
+}
+
+.explanation-body {
+    padding: 1.5rem;
+    color: var(--text);
+    font-size: 0.95rem;
+    line-height: 1.6;
+}
+
+.explanation-body strong {
+    color: var(--purple, #a78bfa);
+}
+
+.ml-metrics-list {
+    margin-top: 0.75rem;
+    padding-left: 1.25rem;
+    color: var(--text-dim);
+}
+
+.ml-metrics-list li {
+    margin-bottom: 0.5rem;
+}

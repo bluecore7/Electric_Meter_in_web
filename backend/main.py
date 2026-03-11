@@ -12,6 +12,9 @@ from models import DevicePayload, OutagePayload, UserProfile
 import time
 from datetime import datetime, timezone, timedelta
 from typing import Optional
+import joblib
+import pandas as pd
+import os
 
 # India Standard Time (UTC+5:30)
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -716,6 +719,69 @@ def get_anomalies(uid=Depends(verify_user), days: int = 1):
         if flags:
             anomalies.append({**h, "flags": flags})
     return anomalies
+
+@app.get("/ml/predict", tags=["ML"])
+def get_prediction(uid=Depends(verify_user)):
+    """
+    Returns the XGBoost prediction for the next hour's average power consumption
+    by utilizing the last 24 hours of data.
+    """
+    db = get_db()
+    
+    # 1. Ensure the XGBoost Forecaster is trained and available
+    model_path = "models/xgb_forecaster.pkl"
+    if not os.path.exists(model_path):
+        return {"error": "Prediction model not compiled. Please run ml_pipeline training first.", "status": 500}
+        
+    saved = joblib.load(model_path)
+    model = saved["model"]
+    feature_cols = saved["features"]
+    
+    # 2. Grab the latest 25 hours of data from the device to create the 24 hour lag features
+    hourly_records = stats_hourly(uid=uid, days=2)
+    if not hourly_records or len(hourly_records) < 25:
+        return {"error": f"Not enough data to calculate predictions (Need 25 hours, found {len(hourly_records)}).", "status": 400}
+    
+    # Take the most recent 25 hours exactly
+    recent = hourly_records[-25:]
+    
+    # The last hour in this list represents 'current' power (t).
+    # The hour before that is (t-1), etc.
+    current = recent[-1]
+    
+    dt_current = datetime.strptime(current["hour"], "%Y-%m-%d_%H")
+    next_hour_dt = dt_current + timedelta(hours=1)
+    
+    feat_dict = {}
+    feat_dict['avg_power'] = current['avg_power']
+    feat_dict['hour_of_day'] = next_hour_dt.hour
+    feat_dict['day_of_week'] = next_hour_dt.weekday()
+    feat_dict['is_weekend'] = 1 if feat_dict['day_of_week'] in [5, 6] else 0
+    
+    for i in range(1, 25): # lag_1 to lag_24
+        # Calculate offset from the end. lag_1 is the power currently at recent[-1]['avg_power'].
+        # Wait, the training logic states:
+        # lag_1 is t.  lag_2 is t-1, etc.
+        target_idx = 25 - i  # 24 is index of last element `current`. So i=1 -> 24. i=2 -> 23.
+        feat_dict[f'power_lag_{i}'] = recent[target_idx]['avg_power']
+        
+    # 3. Create dataframe order explicitly based on exactly what model expects
+    X_pred = pd.DataFrame([feat_dict], columns=feature_cols).values
+    
+    prediction = model.predict(X_pred)[0]
+    
+    # Provide the context for the UI (what is the model suggesting?)
+    difference = prediction - current['avg_power']
+    trend = "increasing" if difference > 0 else "decreasing"
+    
+    return {
+        "status": "ok",
+        "predicted_power_w": float(round(prediction, 2)),
+        "current_power_w": float(round(current['avg_power'], 2)),
+        "difference": float(round(difference, 2)),
+        "trend": trend,
+        "prediction_time": next_hour_dt.strftime("%d %b %Y, %H:00 IST")
+    }
 
 # ============================================================
 #  DATA EXPORT
