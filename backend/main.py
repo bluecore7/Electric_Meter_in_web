@@ -759,10 +759,8 @@ def get_prediction(uid=Depends(verify_user)):
     feat_dict['is_weekend'] = 1 if feat_dict['day_of_week'] in [5, 6] else 0
     
     for i in range(1, 25): # lag_1 to lag_24
-        # Calculate offset from the end. lag_1 is the power currently at recent[-1]['avg_power'].
-        # Wait, the training logic states:
-        # lag_1 is t.  lag_2 is t-1, etc.
-        target_idx = 25 - i  # 24 is index of last element `current`. So i=1 -> 24. i=2 -> 23.
+        # lag_1 is t-1. lag_2 is t-2, etc. (Target is t+1).
+        target_idx = 24 - i
         feat_dict[f'power_lag_{i}'] = recent[target_idx]['avg_power']
         
     # 3. Create dataframe order explicitly based on exactly what model expects

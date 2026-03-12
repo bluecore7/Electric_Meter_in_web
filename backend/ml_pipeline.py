@@ -678,15 +678,9 @@ def run_inference(df: pd.DataFrame):
             feat_dict['is_weekend'] = 1 if feat_dict['day_of_week'] in [5, 6] else 0
             
             for i in range(1, 25): # lag_1 to lag_24
-                # lag_1 is the power 1 step before current, which is index `current_idx - i + 1`?
-                # Actually, in training: power_lag_1 = df['avg_power'].shift(1)
-                # So if predicting t+1, lag_1 is actually 'current' power (t).
-                # lag_2 is t-1, etc.
-                if i == 1:
-                    feat_dict[f'power_lag_{i}'] = recent_df.loc[current_idx, 'avg_power']
-                else:
-                    target_idx = current_idx - (i - 1)
-                    feat_dict[f'power_lag_{i}'] = recent_df.loc[target_idx, 'avg_power']
+                # power_lag_1 is t-1, power_lag_2 is t-2, etc. (Target is t+1).
+                target_idx = current_idx - i
+                feat_dict[f'power_lag_{i}'] = recent_df.loc[target_idx, 'avg_power']
             
             # Convert dictionary to DataFrame for prediction
             X_pred = pd.DataFrame([feat_dict], columns=feature_cols).values

@@ -56,10 +56,11 @@ def prep_uci_data(input_file: str, output_file: str):
     
     out_df['avg_voltage'] = hourly['avg_voltage'].round(2)
     out_df['avg_current'] = hourly['avg_current'].round(2)
-    out_df['avg_power'] = hourly['avg_power'].round(3)
+    # EnergyFlow schema expects power in Watts, but UCI is in kW.
+    out_df['avg_power'] = (hourly['avg_power'] * 1000).round(2)
     
     # Energy = Power (kW) * 1 hour = kWh
-    out_df['energy_kwh'] = out_df['avg_power'].round(3) 
+    out_df['energy_kwh'] = hourly['avg_power'].round(5)
     out_df['samples'] = 60 # Original is 1-minute tracking
     
     out_df['hour_of_day'] = hourly.index.hour
