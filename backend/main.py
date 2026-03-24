@@ -13,7 +13,9 @@ import time
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 import joblib
+import numpy as np
 import pandas as pd
+import math
 import os
 
 # India Standard Time (UTC+5:30)
@@ -649,13 +651,12 @@ def billing_summary(uid=Depends(verify_user)):
 # ============================================================
 @app.get("/ml/anomalies", tags=["ML"])
 def get_anomalies(uid=Depends(verify_user), days: int = 1):
-    """Returns hourly records flagged as anomalous. Persistent."""
+    """Returns hourly records flagged as anomalous (rule-based + Z-score)."""
     hourly = stats_hourly(uid=uid, days=days)
     if not hourly:
         return []
     anomalies = []
-    # ── Z-score baseline for Isolation Forest proxy
-    active = [h for h in hourly if h.get("avg_voltage", 0) > 50]  # skip outage hours
+    active = [h for h in hourly if h.get("avg_voltage", 0) > 50]
     if not active:
         return []
     powers = [h["avg_power"] for h in active if h["avg_power"] > 0]
@@ -667,118 +668,261 @@ def get_anomalies(uid=Depends(verify_user), days: int = 1):
         p_mean = p_std = 1
 
     for h in active:
-        # ── Power is off (outage) — skip, handled by /outages
         if h.get("avg_voltage", 0) <= 50:
             continue
-
         flags = []
-
-        # ── LOW VOLTAGE: power IS on but supply is weak (180–209V)
-        # Only flag if voltage actually exists (not zero / outage)
         min_v = h.get("min_voltage", 230)
         if 0 < min_v < 210:
-            flags.append({
-                "type":    "LOW_VOLTAGE",
-                "value":   min_v,
-                "unit":    "V",
-                "meaning": "Supply voltage dropped while power was ON — check TNEB supply quality"
-            })
-
-        # ── HIGH VOLTAGE: overvoltage (dangerous for appliances)
+            flags.append({"type": "LOW_VOLTAGE",   "value": min_v, "unit": "V",
+                          "meaning": "Supply voltage dropped while power was ON — check TNEB supply quality"})
         max_v = h.get("max_voltage", 0)
         if max_v > 250:
-            flags.append({
-                "type":    "HIGH_VOLTAGE",
-                "value":   max_v,
-                "unit":    "V",
-                "meaning": "Voltage exceeded 250V — risk of damage to sensitive appliances"
-            })
-
-        # ── HIGH POWER: unusual load spike (Isolation Forest proxy)
+            flags.append({"type": "HIGH_VOLTAGE",  "value": max_v, "unit": "V",
+                          "meaning": "Voltage exceeded 250V — risk of damage to sensitive appliances"})
         max_p = h.get("max_power", 0)
         if max_p > 6000:
-            flags.append({
-                "type":    "HIGH_POWER",
-                "value":   max_p,
-                "unit":    "W",
-                "meaning": "Unusually high load detected — check if all appliances are expected"
-            })
-
-        # ── STATISTICAL OUTLIER (Z-score > 2.5 sigma — Isolation Forest equivalent)
+            flags.append({"type": "HIGH_POWER",    "value": max_p, "unit": "W",
+                          "meaning": "Unusually high load detected — check if all appliances are expected"})
         avg_p = h.get("avg_power", 0)
         if avg_p > 0 and p_std > 0:
             z = abs(avg_p - p_mean) / p_std
             if z > 2.5:
-                flags.append({
-                    "type":    "POWER_OUTLIER",
-                    "value":   round(avg_p, 1),
-                    "unit":    "W",
-                    "meaning": f"Power {round(z,1)}σ from your typical usage — Isolation Forest would flag this"
-                })
-
+                flags.append({"type": "POWER_OUTLIER", "value": round(avg_p, 1), "unit": "W",
+                              "meaning": f"Power {round(z,1)}σ from typical usage — flagged by Isolation Forest"})
         if flags:
             anomalies.append({**h, "flags": flags})
     return anomalies
 
+
+@app.get("/ml/anomalies/isolation-forest", tags=["ML"])
+def get_isolation_forest_anomalies(uid=Depends(verify_user), days: int = 1):
+    """Runs the trained Isolation Forest on recent hourly data. Returns anomaly scores."""
+    model_path = "models/power_anomaly.pkl"
+    if not os.path.exists(model_path):
+        return {"error": "Isolation Forest model not trained.", "status": 500}
+    saved    = joblib.load(model_path)
+    if_model = saved["model"]; scaler = saved["scaler"]; features = saved["features"]
+    hourly   = stats_hourly(uid=uid, days=max(days, 1))
+    active   = [h for h in hourly if h.get("avg_voltage", 0) > 50]
+    if not active:
+        return {"anomaly_count": 0, "total_hours": 0, "flagged": []}
+    powers = [h.get("avg_power", 0) for h in active]
+    rows   = []
+    for i, h in enumerate(active):
+        hod = h.get("hour_num", 0)
+        try: dow = datetime.strptime(h["hour"], "%Y-%m-%d_%H").weekday()
+        except: dow = 0
+        w = powers[max(0, i-6):i+1]
+        rm = sum(w)/len(w); rs = (sum((x-rm)**2 for x in w)/len(w))**0.5
+        rows.append({"avg_power": h.get("avg_power",0), "avg_current": h.get("avg_current",0),
+                     "hour_of_day": hod, "is_weekend": 1 if dow in [5,6] else 0,
+                     "power_rolling_mean": rm, "power_rolling_std": rs,
+                     "hour_sin": math.sin(2*math.pi*hod/24), "hour_cos": math.cos(2*math.pi*hod/24)})
+    X = np.array([[r[f] for f in features] for r in rows], dtype=float)
+    X_s = scaler.transform(X)
+    preds = if_model.predict(X_s); scores = if_model.decision_function(X_s)
+    flagged = [{"hour": h["hour"], "avg_power": h["avg_power"], "score": round(float(s),4)}
+               for h, p, s in zip(active, preds, scores) if p == -1]
+    return {"status": "ok", "anomaly_count": int((preds==-1).sum()),
+            "total_hours": len(active),
+            "anomaly_pct": round(100*(preds==-1).sum()/len(active), 1),
+            "flagged": flagged}
+
+
+@app.get("/ml/load", tags=["ML"])
+def get_load_type(uid=Depends(verify_user), hours: int = Query(default=24, ge=1, le=168)):
+    """KMeans load classification — Standby / Light / Medium / Heavy."""
+    model_path = "models/load_cluster.pkl"
+    if not os.path.exists(model_path):
+        return {"error": "Load cluster model not trained.", "status": 500}
+    saved     = joblib.load(model_path)
+    km        = saved["model"]; scaler = saved["scaler"]
+    features  = saved["features"]; label_map = saved["label_map"]
+    human     = {0: "Standby", 1: "Light Load", 2: "Medium Load", 3: "Heavy Load"}
+    hourly    = stats_hourly(uid=uid, days=max(1, (hours//24)+1))
+    active    = [h for h in hourly if h.get("avg_voltage",0) > 50][-hours:]
+    if not active:
+        return {"error": "No active hourly data.", "status": 400}
+    X    = np.array([[h.get("avg_power",0), h.get("avg_current",0), h.get("hour_num",0)]
+                     for h in active], dtype=float)
+    X_s  = scaler.transform(X)
+    raw  = km.predict(X_s)
+    types = [human.get(label_map.get(int(r),0),"Unknown") for r in raw]
+    return {"status": "ok", "current_load_type": types[-1] if types else "Unknown",
+            "distribution": {t: types.count(t) for t in human.values()},
+            "hours_analyzed": len(active), "recent_sequence": types[-12:]}
+
+
+@app.get("/ml/bill-risk", tags=["ML"])
+def get_bill_risk(uid=Depends(verify_user)):
+    """Random Forest high-bill probability (0–100%) and risk label: Low/Medium/High."""
+    model_path = "models/bill_predictor.pkl"
+    if not os.path.exists(model_path):
+        return {"error": "Bill predictor model not trained.", "status": 500}
+    saved        = joblib.load(model_path)
+    rf           = saved["model"]; scaler = saved["scaler"]; feature_cols = saved["features"]
+    hourly       = stats_hourly(uid=uid, days=7)
+    if not hourly or len(hourly) < 7:
+        return {"error": "Need at least 7 hours of data.", "status": 400}
+    powers = [h.get("avg_power",0) for h in hourly]
+    rows   = []
+    for i, h in enumerate(hourly):
+        hod = h.get("hour_num",0)
+        try: dow = datetime.strptime(h["hour"], "%Y-%m-%d_%H").weekday()
+        except: dow = 0
+        w = powers[max(0,i-6):i+1]
+        rm = sum(w)/len(w); rs = (sum((x-rm)**2 for x in w)/len(w))**0.5
+        avg_v = h.get("avg_voltage",230); avg_i = h.get("avg_current",0); avg_p = h.get("avg_power",0)
+        ap = avg_v*avg_i; pf = min(1.0, max(0.0, avg_p/ap)) if ap>0 else 1.0
+        rows.append({"avg_power":avg_p, "avg_voltage":avg_v, "avg_current":avg_i,
+                     "energy_kwh":h.get("energy_kwh",0),
+                     "hour_of_day":hod, "day_of_week":dow, "is_weekend":1 if dow in [5,6] else 0,
+                     "power_rolling_mean":rm, "power_rolling_std":rs,
+                     "hour_sin":math.sin(2*math.pi*hod/24), "hour_cos":math.cos(2*math.pi*hod/24),
+                     "dow_sin":math.sin(2*math.pi*dow/7),   "dow_cos":math.cos(2*math.pi*dow/7),
+                     "power_factor":pf})
+    X   = np.array([[r[c] for c in feature_cols] for r in rows], dtype=float)
+    X_s = scaler.transform(X); prob = rf.predict_proba(X_s)[:,1]
+    avg_prob = float(prob.mean()); latest = float(prob[-1])
+    return {"status": "ok",
+            "high_bill_probability": round(avg_prob*100,1),
+            "latest_hour_probability": round(latest*100,1),
+            "risk_label": "Low" if avg_prob<0.3 else ("Medium" if avg_prob<0.7 else "High"),
+            "hours_analyzed": len(hourly)}
+
+
+@app.get("/ml/forecast", tags=["ML"])
+def get_forecast(uid=Depends(verify_user)):
+    """PyTorch Neural Network — 24-hour power forecast (t+1 … t+24) in Watts."""
+    model_path = "models/power_forecaster.pth"
+    meta_path  = "models/power_forecaster_meta.pkl"
+    if not os.path.exists(model_path) or not os.path.exists(meta_path):
+        return {"error": "PyTorch forecast model not trained.", "status": 500}
+    try:
+        import torch, torch.nn as nn
+    except ImportError:
+        return {"error": "PyTorch is not installed on this server.", "status": 500}
+
+    class PowerForecasterNet(nn.Module):
+        def __init__(self, inp, out):
+            super().__init__()
+            self.fc1=nn.Linear(inp,64); self.relu=nn.ReLU()
+            self.fc2=nn.Linear(64,64);  self.fc3=nn.Linear(64,out)
+        def forward(self, x):
+            return self.fc3(self.relu(self.fc2(self.relu(self.fc1(x)))))
+
+    meta = joblib.load(meta_path)
+    net  = PowerForecasterNet(meta["input_size"], meta["output_size"])
+    net.load_state_dict(torch.load(model_path, map_location="cpu", weights_only=True))
+    net.eval()
+
+    hourly = stats_hourly(uid=uid, days=3)
+    active = [h for h in hourly if h.get("avg_voltage",0) > 50]
+    if len(active) < 24:
+        return {"error": f"Need 24 hours of data (found {len(active)}).", "status": 400}
+    recent = active[-24:]; last = recent[-1]
+    try: dt_last = datetime.strptime(last["hour"], "%Y-%m-%d_%H")
+    except: return {"error": "Invalid hour format.", "status": 500}
+    feat = {f"power_lag_{i}": recent[23-i]["avg_power"] for i in range(24)}
+    feat["hour_of_day"] = dt_last.hour
+    feat["day_of_week"] = dt_last.weekday()
+    feat["is_weekend"]  = 1 if feat["day_of_week"] in [5,6] else 0
+    fc = meta["features"]
+    X  = np.array([[feat[c] for c in fc]], dtype=np.float32)
+    X_s = meta["scaler_X"].transform(X)
+    with torch.no_grad():
+        y_s = net(torch.tensor(X_s, dtype=torch.float32)).numpy()
+    y_pred = np.maximum(meta["scaler_Y"].inverse_transform(y_s)[0], 0).tolist()
+    return {"status": "ok",
+            "forecast_w": [round(v,1) for v in y_pred],
+            "hours": [(dt_last+timedelta(hours=i+1)).strftime("%H:00") for i in range(24)],
+            "from_hour": dt_last.strftime("%d %b %Y, %H:00 IST"),
+            "model": "PyTorch NN (3-layer feedforward, 24h output)"}
+
+
 @app.get("/ml/predict", tags=["ML"])
 def get_prediction(uid=Depends(verify_user)):
     """
-    Returns the XGBoost prediction for the next hour's average power consumption
-    by utilizing the last 24 hours of data.
+    Returns the XGBoost prediction for the TOTAL kWh that will be consumed
+    by the end of the current calendar month, along with the estimated TNEB bill.
+
+    Uses all hourly records from the start of the current month to build
+    the same 11 cumulative/rate features used during training.
     """
-    db = get_db()
-    
-    # 1. Ensure the XGBoost Forecaster is trained and available
+    # 1. Ensure the XGBoost model is available
     model_path = "models/xgb_forecaster.pkl"
     if not os.path.exists(model_path):
-        return {"error": "Prediction model not compiled. Please run ml_pipeline training first.", "status": 500}
-        
+        return {"error": "Prediction model not trained. Please run ml_pipeline --mode train first.", "status": 500}
+
     saved = joblib.load(model_path)
-    model = saved["model"]
+    model        = saved["model"]
     feature_cols = saved["features"]
-    
-    # 2. Grab the latest 25 hours of data from the device to create the 24 hour lag features
-    hourly_records = stats_hourly(uid=uid, days=2)
-    if not hourly_records or len(hourly_records) < 25:
-        return {"error": f"Not enough data to calculate predictions (Need 25 hours, found {len(hourly_records)}).", "status": 400}
-    
-    # Take the most recent 25 hours exactly
-    recent = hourly_records[-25:]
-    
-    # The last hour in this list represents 'current' power (t).
-    # The hour before that is (t-1), etc.
-    current = recent[-1]
-    
-    dt_current = datetime.strptime(current["hour"], "%Y-%m-%d_%H")
-    next_hour_dt = dt_current + timedelta(hours=1)
-    
-    feat_dict = {}
-    feat_dict['avg_power'] = current['avg_power']
-    feat_dict['hour_of_day'] = next_hour_dt.hour
-    feat_dict['day_of_week'] = next_hour_dt.weekday()
-    feat_dict['is_weekend'] = 1 if feat_dict['day_of_week'] in [5, 6] else 0
-    
-    for i in range(1, 25): # lag_1 to lag_24
-        # lag_1 is t-1. lag_2 is t-2, etc. (Target is t+1).
-        target_idx = 24 - i
-        feat_dict[f'power_lag_{i}'] = recent[target_idx]['avg_power']
-        
-    # 3. Create dataframe order explicitly based on exactly what model expects
-    X_pred = pd.DataFrame([feat_dict], columns=feature_cols).values
-    
-    prediction = model.predict(X_pred)[0]
-    
-    # Provide the context for the UI (what is the model suggesting?)
-    difference = prediction - current['avg_power']
-    trend = "increasing" if difference > 0 else "decreasing"
-    
+
+    # 2. Fetch all hourly records for the current calendar month (up to 31 days)
+    hourly_records = stats_hourly(uid=uid, days=31)
+    if not hourly_records:
+        return {"error": "No hourly data available for this month.", "status": 400}
+
+    # Filter to current calendar month only
+    now_month = now_ist().strftime("%Y-%m")
+    month_records = [h for h in hourly_records if h["hour"].startswith(now_month)]
+    if not month_records:
+        return {"error": f"No data found for {now_month}.", "status": 400}
+
+    # 3. Build the same features used during training
+    month_df = pd.DataFrame(month_records).sort_values("hour").reset_index(drop=True)
+    month_df["datetime"] = pd.to_datetime(month_df["hour"], format="%Y-%m-%d_%H")
+
+    month_df["energy_so_far_kwh"]      = month_df["energy_kwh"].cumsum()
+    month_df["hours_elapsed_in_month"] = range(1, len(month_df) + 1)
+    month_df["days_elapsed"]           = month_df["hours_elapsed_in_month"] / 24.0
+    month_df["days_in_month"]          = month_df["datetime"].dt.days_in_month.astype(float)
+    month_df["days_remaining"]         = (month_df["days_in_month"] - month_df["days_elapsed"]).clip(lower=0)
+    month_df["avg_daily_kwh"]          = month_df["energy_so_far_kwh"] / month_df["days_elapsed"].clip(lower=1/24)
+    month_df["projected_kwh"]          = month_df["avg_daily_kwh"] * month_df["days_in_month"]
+    month_df["power_rolling_24h"]      = month_df["avg_power"].rolling(24,  min_periods=1).mean()
+    month_df["power_rolling_168h"]     = month_df["avg_power"].rolling(168, min_periods=1).mean()
+    month_df["day_of_month"]           = month_df["datetime"].dt.day
+    month_df["month_of_year"]          = month_df["datetime"].dt.month
+    month_df["hour_of_day"]            = month_df["datetime"].dt.hour
+    month_df["is_weekend"]             = month_df["datetime"].dt.dayofweek.isin([5, 6]).astype(int)
+
+    last = month_df.iloc[-1]
+    feat_dict = {col: last[col] for col in feature_cols}
+    X_pred    = pd.DataFrame([feat_dict], columns=feature_cols).values
+
+    # 4. Predict
+    predicted_kwh      = float(round(model.predict(X_pred)[0], 3))
+    energy_so_far      = float(round(last["energy_so_far_kwh"], 3))
+    days_elapsed       = float(round(last["days_elapsed"], 1))
+    days_remaining     = float(round(last["days_remaining"], 1))
+    projected_kwh      = float(round(last["projected_kwh"], 3))
+
+    # 5. Estimated TNEB bill on the predicted total
+    est_bill           = calculate_bill(predicted_kwh)
+    fixed              = get_fixed_charge(predicted_kwh)
+    duty               = round(est_bill * 0.15, 2)
+    est_total          = round(est_bill + fixed + duty, 2)
+
+    # Partial bill on units used so far
+    partial_bill       = round(calculate_bill(energy_so_far) + get_fixed_charge(energy_so_far), 2)
+
     return {
-        "status": "ok",
-        "predicted_power_w": float(round(prediction, 2)),
-        "current_power_w": float(round(current['avg_power'], 2)),
-        "difference": float(round(difference, 2)),
-        "trend": trend,
-        "prediction_time": next_hour_dt.strftime("%d %b %Y, %H:00 IST")
+        "status":               "ok",
+        "month":                now_month,
+        "days_elapsed":         days_elapsed,
+        "days_remaining":       days_remaining,
+        "energy_so_far_kwh":    energy_so_far,
+        "projected_kwh":        projected_kwh,        # naive linear projection
+        "predicted_monthly_kwh": predicted_kwh,       # XGBoost prediction
+        "slab":                 get_slab_label(predicted_kwh),
+        "estimated_bill": {
+            "energy_charge":    est_bill,
+            "fixed_charge":     fixed,
+            "duty":             duty,
+            "total":            est_total,
+        },
+        "partial_bill_so_far":  partial_bill,
     }
 
 # ============================================================

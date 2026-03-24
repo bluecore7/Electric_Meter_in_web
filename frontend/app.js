@@ -2113,3 +2113,221 @@ window.fetchPrediction = async () => {
         isPredicting = false;
     }
 };
+
+// ============================================================
+//  PREDICTION PAGE — All 6 ML Models
+// ============================================================
+
+let loadDoughnutChartInst = null;
+let forecastChartInst = null;
+
+// Orchestrator — called by showPage('prediction')
+window.fetchPrediction = () => loadPredictionPage();
+
+window.loadPredictionPage = async () => {
+  await Promise.allSettled([
+    fetchMonthlyPrediction(),
+    fetchBillRisk(),
+    fetchLoadType(),
+    fetchForecast(),
+    fetchIFAnomalies(),
+  ]);
+};
+
+// ── 1. XGBoost Monthly Forecast
+async function fetchMonthlyPrediction() {
+  const el = document.getElementById('predMonthlyBody');
+  el.innerHTML = '<div class="skeleton-item"></div>';
+  try {
+    const d = await api('/ml/predict');
+    if (d.error) { el.innerHTML = `<div class="empty-state" style="color:var(--red)">${d.error}</div>`; return; }
+    const b = d.estimated_bill || {};
+    const pct = Math.min(100, Math.round((d.energy_so_far_kwh / (d.predicted_monthly_kwh || 1)) * 100));
+    el.innerHTML = `
+      <div style="display:flex;align-items:flex-end;gap:8px;margin-bottom:6px;">
+        <span style="font-size:2.4rem;font-weight:900;color:var(--amber);font-family:'Rajdhani',sans-serif;">${d.predicted_monthly_kwh}</span>
+        <span style="color:var(--text-dim);font-size:0.9rem;margin-bottom:8px;">kWh predicted this month</span>
+      </div>
+      <div style="background:rgba(255,255,255,0.05);border-radius:6px;height:6px;overflow:hidden;margin-bottom:12px;">
+        <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#fbbf24,#d97706);border-radius:6px;transition:width 0.8s;"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:0.82rem;">
+        <div style="background:rgba(255,255,255,0.04);border-radius:8px;padding:8px 10px;">
+          <div style="color:var(--text-dim)">Consumed so far</div>
+          <div style="font-weight:700;color:var(--text)">${d.energy_so_far_kwh} kWh</div>
+        </div>
+        <div style="background:rgba(255,255,255,0.04);border-radius:8px;padding:8px 10px;">
+          <div style="color:var(--text-dim)">Days remaining</div>
+          <div style="font-weight:700;color:var(--text)">${d.days_remaining} days</div>
+        </div>
+        <div style="background:rgba(255,255,255,0.04);border-radius:8px;padding:8px 10px;">
+          <div style="color:var(--text-dim)">Estimated bill</div>
+          <div style="font-weight:700;color:var(--amber)">₹${b.total}</div>
+        </div>
+        <div style="background:rgba(255,255,255,0.04);border-radius:8px;padding:8px 10px;">
+          <div style="color:var(--text-dim)">Slab</div>
+          <div style="font-weight:700;color:var(--text);font-size:0.75rem;">${d.slab}</div>
+        </div>
+      </div>`;
+  } catch(e) {
+    el.innerHTML = `<div class="empty-state" style="color:var(--red)">Error: ${e.message}</div>`;
+  }
+}
+
+// ── 2. Random Forest Bill Risk
+async function fetchBillRisk() {
+  const el = document.getElementById('predBillRiskBody');
+  el.innerHTML = '<div class="skeleton-item"></div>';
+  try {
+    const d = await api('/ml/bill-risk');
+    if (d.error) { el.innerHTML = `<div class="empty-state" style="color:var(--red)">${d.error}</div>`; return; }
+    const pct = d.high_bill_probability;
+    const color = pct < 30 ? '#34d399' : pct < 70 ? '#fbbf24' : '#f87171';
+    const riskColors = { Low: '#34d399', Medium: '#fbbf24', High: '#f87171' };
+    const rc = riskColors[d.risk_label] || '#fbbf24';
+    el.innerHTML = `
+      <div style="display:flex;align-items:center;gap:20px;padding:8px 0 12px;">
+        <div style="position:relative;width:90px;height:90px;flex-shrink:0;">
+          <svg viewBox="0 0 90 90" style="transform:rotate(-90deg)">
+            <circle cx="45" cy="45" r="38" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="10"/>
+            <circle cx="45" cy="45" r="38" fill="none" stroke="${color}" stroke-width="10"
+              stroke-dasharray="${2*Math.PI*38}" stroke-dashoffset="${2*Math.PI*38*(1-pct/100)}"
+              stroke-linecap="round" style="transition:stroke-dashoffset 1s;"/>
+          </svg>
+          <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;">
+            <span style="font-size:1.3rem;font-weight:900;color:${color};font-family:'Rajdhani';">${pct}%</span>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:1.6rem;font-weight:900;color:${rc};font-family:'Rajdhani';">${d.risk_label} Risk</div>
+          <div style="font-size:0.8rem;color:var(--text-dim);margin-top:4px;">Probability of exceeding 300 kWh this billing period</div>
+          <div style="font-size:0.78rem;color:var(--text-dim);margin-top:6px;">Analysed ${d.hours_analyzed} hours · Latest hr: ${d.latest_hour_probability}%</div>
+        </div>
+      </div>`;
+  } catch(e) {
+    el.innerHTML = `<div class="empty-state" style="color:var(--red)">Error: ${e.message}</div>`;
+  }
+}
+
+// ── 3. KMeans Load Classification
+async function fetchLoadType() {
+  const el = document.getElementById('predLoadBody');
+  el.innerHTML = '<div class="skeleton-item"></div>';
+  try {
+    const d = await api('/ml/load');
+    if (d.error) { el.innerHTML = `<div class="empty-state" style="color:var(--red)">${d.error}</div>`; return; }
+    const lc = {Standby:'#38bdf8','Light Load':'#34d399','Medium Load':'#fbbf24','Heavy Load':'#f87171'};
+    const typeColor = lc[d.current_load_type] || '#e2e8f0';
+    el.innerHTML = `
+      <div style="text-align:center;padding:4px 0 8px;">
+        <div style="font-size:1.8rem;font-weight:900;color:${typeColor};font-family:'Rajdhani';">${d.current_load_type}</div>
+        <div style="font-size:0.75rem;color:var(--text-dim);">Current load category</div>
+      </div>`;
+    const dist = d.distribution;
+    const total = Object.values(dist).reduce((a,b)=>a+b,0) || 1;
+    const colors = ['#38bdf8','#34d399','#fbbf24','#f87171'];
+    const labels = Object.keys(dist);
+    const vals   = Object.values(dist);
+
+    if (loadDoughnutChartInst) { loadDoughnutChartInst.destroy(); loadDoughnutChartInst = null; }
+    const ctx = document.getElementById('loadDoughnutChart').getContext('2d');
+    loadDoughnutChartInst = new Chart(ctx, {
+      type: 'doughnut',
+      data: { labels, datasets:[{ data:vals, backgroundColor:colors, borderWidth:0, hoverOffset:4 }] },
+      options: {
+        responsive:true, maintainAspectRatio:false,
+        cutout:'65%',
+        plugins: {
+          legend:{ position:'right', labels:{ color:'#94a3b8', font:{ size:11 }, boxWidth:10, padding:8 } }
+        }
+      }
+    });
+  } catch(e) {
+    el.innerHTML = `<div class="empty-state" style="color:var(--red)">Error: ${e.message}</div>`;
+  }
+}
+
+// ── 4. PyTorch 24-Hour Forecast
+async function fetchForecast() {
+  const meta = document.getElementById('predForecastMeta');
+  meta.textContent = 'Loading…';
+  try {
+    const d = await api('/ml/forecast');
+    if (d.error) { meta.innerHTML = `<span style="color:var(--red)">${d.error}</span>`; return; }
+    meta.textContent = `From ${d.from_hour}  ·  ${d.model}`;
+    if (forecastChartInst) { forecastChartInst.destroy(); forecastChartInst = null; }
+    const ctx = document.getElementById('forecastChart').getContext('2d');
+    forecastChartInst = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: d.hours,
+        datasets: [{
+          label:'Predicted Power (W)',
+          data: d.forecast_w,
+          borderColor:'#34d399',
+          backgroundColor:'rgba(52,211,153,0.08)',
+          borderWidth:2,
+          pointRadius:3,
+          pointBackgroundColor:'#34d399',
+          fill:true,
+          tension:0.35
+        }]
+      },
+      options: {
+        responsive:true, maintainAspectRatio:false,
+        scales: {
+          x:{ ticks:{ color:'#64748b', font:{size:10} }, grid:{ color:'rgba(255,255,255,0.05)' } },
+          y:{ ticks:{ color:'#64748b' }, grid:{ color:'rgba(255,255,255,0.05)' }, beginAtZero:true }
+        },
+        plugins:{ legend:{ display:false } }
+      }
+    });
+  } catch(e) {
+    meta.innerHTML = `<span style="color:var(--red)">Error: ${e.message}</span>`;
+  }
+}
+
+// ── 5. Isolation Forest Anomalies
+async function fetchIFAnomalies() {
+  const el = document.getElementById('predIFBody');
+  el.innerHTML = '<div class="skeleton-item"></div>';
+  try {
+    const d = await api('/ml/anomalies/isolation-forest?days=1');
+    if (d.error) { el.innerHTML = `<div class="empty-state" style="color:var(--red)">${d.error}</div>`; return; }
+    if (d.anomaly_count === 0) {
+      el.innerHTML = `<div class="empty-state" style="color:var(--green);padding:1.2rem;">✓ No power anomalies detected by Isolation Forest in the last 24 hours.</div>`;
+      return;
+    }
+    const pct = d.anomaly_pct;
+    let rows = d.flagged.slice(0,10).map(f =>
+      `<tr>
+        <td>${f.hour}</td>
+        <td>${f.avg_power} W</td>
+        <td style="font-size:11px;color:${f.score < -0.05 ? '#f87171' : '#fbbf24'}">${f.score.toFixed(4)}</td>
+       </tr>`
+    ).join('');
+    el.innerHTML = `
+      <div style="display:flex;gap:24px;align-items:center;padding:12px 0 14px;">
+        <div style="text-align:center;">
+          <div style="font-size:2rem;font-weight:900;color:#f87171;font-family:'Rajdhani';">${d.anomaly_count}</div>
+          <div style="font-size:11px;color:var(--text-dim);">anomalous hours</div>
+        </div>
+        <div style="text-align:center;">
+          <div style="font-size:2rem;font-weight:900;color:#fbbf24;font-family:'Rajdhani';">${pct}%</div>
+          <div style="font-size:11px;color:var(--text-dim);">of all hours</div>
+        </div>
+        <div style="font-size:0.78rem;color:var(--text-dim);flex:1;">
+          Isolation Forest flagged these hours as statistically unusual.<br>
+          Negative scores = more anomalous. Trained on 34k+ UCI records (5% contamination).
+        </div>
+      </div>
+      <div class="tbl-wrap" style="max-height:200px;overflow-y:auto;">
+        <table class="data-table">
+          <thead><tr><th>Hour</th><th>Avg Power</th><th>Anomaly Score</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  } catch(e) {
+    el.innerHTML = `<div class="empty-state" style="color:var(--red)">Error: ${e.message}</div>`;
+  }
+}

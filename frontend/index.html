@@ -405,61 +405,79 @@
         <div id="page-prediction" class="page">
             <div class="page-header">
                 <div>
-                    <h2 class="page-title">Live Prediction</h2>
-                    <p class="page-sub">Next-hour power generation powered by XGBoost</p>
+                    <h2 class="page-title">AI Predictions</h2>
+                    <p class="page-sub">All 6 ML models — live inference from trained models</p>
                 </div>
                 <div class="header-right">
-                    <button class="btn-primary-sm" onclick="fetchPrediction()">↻ Refresh Prediction</button>
+                    <button class="btn-primary-sm" onclick="loadPredictionPage()">↻ Refresh All</button>
                 </div>
             </div>
 
-            <div class="prediction-grid">
-                <!-- Main Prediction Output -->
-                <div class="card prediction-card">
+            <!-- ROW 1: Monthly Forecast + Bill Risk -->
+            <div class="prediction-grid" style="grid-template-columns:1fr 1fr;gap:1.2rem;margin-bottom:1.2rem;">
+
+                <!-- XGBoost Monthly Forecast -->
+                <div class="card" id="predMonthlyCard">
                     <div class="card-header">
-                        <h3>🔮 Predicted Power (<span id="predTime">--:--</span>)</h3>
-                        <span class="cloud-badge ai-badge">✨ AI Generated</span>
+                        <h3>📅 Monthly kWh Forecast</h3>
+                        <span class="cloud-badge ai-badge">✨ XGBoost</span>
                     </div>
-                    <div class="prediction-stage">
-                        <div class="pred-value">
-                            <span id="predPower">—</span><span class="pred-unit">W</span>
-                        </div>
-                        <div class="pred-trend" id="predTrend">
-                            Waiting for model inference...
-                        </div>
-                    </div>
-                    <div class="prediction-footer">
-                        <span>Current Power: </span><span id="predCurrentPower" style="font-weight:700; color:var(--text)">— W</span>
+                    <div id="predMonthlyBody" style="padding:1rem 0;">
+                        <div class="skeleton-item"></div>
                     </div>
                 </div>
 
-                <!-- Explanation Box -->
+                <!-- Random Forest Bill Risk -->
+                <div class="card" id="predBillRiskCard">
+                    <div class="card-header">
+                        <h3>💰 High-Bill Risk</h3>
+                        <span class="cloud-badge" style="background:rgba(248,113,113,0.15);color:#f87171;border-color:rgba(248,113,113,0.3);">🌲 Random Forest</span>
+                    </div>
+                    <div id="predBillRiskBody" style="padding:1rem 0;">
+                        <div class="skeleton-item"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ROW 2: Load Type + 24h Forecast -->
+            <div style="display:grid;grid-template-columns:1fr 2fr;gap:1.2rem;margin-bottom:1.2rem;">
+
+                <!-- KMeans Load Classification -->
                 <div class="card">
                     <div class="card-header">
-                        <h3>🧠 XGBoost Forecaster</h3>
+                        <h3>🔋 Load Type</h3>
+                        <span class="cloud-badge" style="background:rgba(167,139,250,0.15);color:#a78bfa;border-color:rgba(167,139,250,0.3);">K-Means</span>
                     </div>
-                    <div class="explanation-body">
-                        <p>This prediction uses an advanced Time-Series ML model built on <strong>XGBoost</strong> with an <code>R² of 0.601</code>.</p>
-                        <br>
-                        <h4>How it works:</h4>
-                        <ul class="ml-metrics-list">
-                            <li><strong>Lag Features:</strong> Extracts the exact power consumption of your house over the past 24 hours individually.</li>
-                            <li><strong>Time Context:</strong> Factors in whether it is a weekend, weekday, and the specific hour of day.</li>
-                            <li><strong>Training:</strong> Learned from over 34,000+ real-world household power hours (UCI Dataset) to extrapolate trends.</li>
-                        </ul>
+                    <div id="predLoadBody" style="padding:0.5rem 0;">
+                        <div class="skeleton-item"></div>
+                    </div>
+                    <div class="chart-wrapper" style="height:160px;margin-top:10px;">
+                        <canvas id="loadDoughnutChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- PyTorch 24h Forecast -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>🧠 24-Hour Power Forecast</h3>
+                        <span class="cloud-badge" style="background:rgba(52,211,153,0.15);color:#34d399;border-color:rgba(52,211,153,0.3);">PyTorch NN</span>
+                    </div>
+                    <div id="predForecastMeta" style="font-size:11px;color:var(--text-dim);padding:2px 0 4px"></div>
+                    <div class="chart-wrapper" style="height:200px;">
+                        <canvas id="forecastChart"></canvas>
                     </div>
                 </div>
             </div>
-            
-            <div class="card" style="margin-top: 1.5rem">
-                 <div class="card-header">
-                     <h3>Warning / Context</h3>
-                 </div>
-                 <div style="padding: 1.5rem; color: var(--text-dim); font-size: 0.95rem">
-                    <p>Predictions are estimates intended for tracking daily averages and smoothing out spikes. Actual physical load may vary significantly based on spontaneous switch events (e.g. suddenly turning on an AC that wasn't on yesterday).</p>
-                    <br>
-                    <p style="color: var(--amber)">If the API throws an error regarding missing data, you must leave the ESP32 active for at least 25 hours to populate the "Lag Features" window.</p>
-                 </div>
+
+            <!-- ROW 3: Isolation Forest Anomaly Summary -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>⚠ Isolation Forest — Power Anomalies</h3>
+                    <span class="cloud-badge" style="background:rgba(251,191,36,0.15);color:#fbbf24;border-color:rgba(251,191,36,0.3);">sklearn</span>
+                </div>
+                <div id="predIFBody">
+                    <div class="skeleton-item"></div>
+                </div>
             </div>
         </div>
 

@@ -460,38 +460,91 @@ def train_forecasting_model(df: pd.DataFrame):
     return model
 
 # ============================================================
-#  MODEL 6: POWER FORECASTING (XGBoost)
+#  MODEL 6: MONTHLY kWh FORECASTING (XGBoost)
 # ============================================================
 def train_xgboost_forecaster(df: pd.DataFrame):
     """
-    Train an XGBoost regressor to predict avg_power for the next hour (t+1).
-    Uses the past 24 hours of avg_power as lag features.
+    Train an XGBoost regressor to predict the TOTAL kWh consumed
+    by the end of the current calendar month.
+
+    For every hour h in the dataset the model sees only data
+    available up to that hour (no look-ahead) and predicts the
+    total kWh that will be logged by the last hour of that month.
+
+    Key features
+    ------------
+    energy_so_far_kwh   : cumulative kWh consumed this month up to hour h
+    days_elapsed        : fractional days into the billing month
+    days_remaining      : days left until end of month
+    avg_daily_kwh       : energy_so_far / days_elapsed
+    projected_kwh       : naive linear projection of avg_daily * days_in_month
+    power_rolling_24h   : average power (W) over the last 24 hours
+    power_rolling_168h  : average power (W) over the last 7 days
+    day_of_month        : calendar day (1-31)
+    month_of_year       : month for seasonal adjustment (1-12)
+    hour_of_day         : current hour (0-23)
+    is_weekend          : 1 if today is Saturday or Sunday
+
+    Target: total_monthly_kwh — sum of energy_kwh for that entire month.
     """
     df = df.copy().sort_values("datetime").reset_index(drop=True)
-    
-    # Create lag features (t-1 to t-24)
-    for i in range(1, 25):
-        df[f'power_lag_{i}'] = df['avg_power'].shift(i)
-    
-    # Target: power at t+1
-    df['target_power'] = df['avg_power'].shift(-1)
-    
-    feature_cols = [f'power_lag_{i}' for i in range(1, 25)] + ['avg_power', 'hour_of_day', 'day_of_week', 'is_weekend']
-    
-    df_clean = df.dropna(subset=feature_cols + ['target_power']).copy()
-    
-    if len(df_clean) < 50:
-        print("\n[XGBoost Forecaster] Not enough data to train forecaster (need >50 hours after shifting).")
+
+    # ── 1. Compute the TARGET: true monthly total kWh per calendar month
+    df['year_month'] = df['datetime'].dt.to_period('M')
+    monthly_totals = df.groupby('year_month')['energy_kwh'].sum()
+    df['target_monthly_kwh'] = df['year_month'].map(monthly_totals)
+
+    # ── 2. Within-month cumulative energy (no look-ahead — uses only past rows)
+    df['energy_so_far_kwh'] = df.groupby('year_month')['energy_kwh'].cumsum()
+
+    # ── 3. Hours / days elapsed within the month
+    df['hours_elapsed_in_month'] = df.groupby('year_month').cumcount() + 1
+    df['days_elapsed']  = df['hours_elapsed_in_month'] / 24.0
+    df['days_in_month'] = df['datetime'].dt.days_in_month.astype(float)
+    df['days_remaining'] = (df['days_in_month'] - df['days_elapsed']).clip(lower=0)
+
+    # ── 4. Rate-based projection features
+    df['avg_daily_kwh'] = df['energy_so_far_kwh'] / df['days_elapsed'].clip(lower=1/24)
+    df['projected_kwh'] = df['avg_daily_kwh'] * df['days_in_month']
+
+    # ── 5. Rolling power averages
+    df['power_rolling_24h']  = df['avg_power'].rolling(24,  min_periods=1).mean()
+    df['power_rolling_168h'] = df['avg_power'].rolling(168, min_periods=1).mean()
+
+    # ── 6. Calendar features
+    df['day_of_month']  = df['datetime'].dt.day
+    df['month_of_year'] = df['datetime'].dt.month
+
+    feature_cols = [
+        'energy_so_far_kwh',
+        'days_elapsed',
+        'days_remaining',
+        'avg_daily_kwh',
+        'projected_kwh',
+        'power_rolling_24h',
+        'power_rolling_168h',
+        'day_of_month',
+        'month_of_year',
+        'hour_of_day',
+        'is_weekend',
+    ]
+
+    df_clean = df.dropna(subset=feature_cols + ['target_monthly_kwh']).copy()
+
+    # Need at least 2 full months of data to have a useful train / test split
+    months_available = df_clean['year_month'].nunique()
+    if months_available < 2:
+        print("\n[XGBoost Monthly Forecaster] Need at least 2 full months of data to train.")
         return None
-        
+
     X = df_clean[feature_cols].values
-    y = df_clean['target_power'].values
-    
-    # Time-series split (don't shuffle)
+    y = df_clean['target_monthly_kwh'].values
+
+    # Time-series split — last 10 % of rows become the test set (never shuffle)
     split_idx = int(len(X) * 0.9)
     X_train, X_test = X[:split_idx], X[split_idx:]
     y_train, y_test = y[:split_idx], y[split_idx:]
-    
+
     model = xgb.XGBRegressor(
         n_estimators=500,
         learning_rate=0.05,
@@ -500,30 +553,34 @@ def train_xgboost_forecaster(df: pd.DataFrame):
         colsample_bytree=0.8,
         random_state=42,
         n_jobs=-1,
-        early_stopping_rounds=50
+        early_stopping_rounds=50,
     )
-    
-    print("\n[Power Forecaster — XGBoost]")
-    print(f"  Training on {len(X_train)} samples, testing on {len(X_test)} samples...")
+
+    print("\n[Monthly kWh Forecaster — XGBoost]")
+    print(f"  Months available : {months_available}")
+    print(f"  Training samples : {len(X_train)}  |  Test samples: {len(X_test)}")
     model.fit(
         X_train, y_train,
         eval_set=[(X_test, y_test)],
-        verbose=False
+        verbose=False,
     )
-    
+
     y_pred = model.predict(X_test)
-    mse = mean_squared_error(y_test, y_pred)
-    r2 = r2_score(y_test, y_pred)
-    
-    print(f"  Test MSE: {mse:.2f}")
-    print(f"  Test R^2: {r2:.3f}")
-    
-    # Feature importance
+    mse  = mean_squared_error(y_test, y_pred)
+    rmse = mse ** 0.5
+    r2   = r2_score(y_test, y_pred)
+
+    print(f"  Test RMSE : {rmse:.4f} kWh")
+    print(f"  Test R²   : {r2:.3f}")
+
     importances = pd.Series(model.feature_importances_, index=feature_cols).sort_values(ascending=False)
     print("  Top 5 features:")
     print(importances.head(5).to_string())
 
-    joblib.dump({"model": model, "features": feature_cols}, "models/xgb_forecaster.pkl")
+    joblib.dump(
+        {"model": model, "features": feature_cols},
+        "models/xgb_forecaster.pkl",
+    )
     print("  ✓ Saved model to models/xgb_forecaster.pkl")
     return model
 
@@ -657,39 +714,44 @@ def run_inference(df: pd.DataFrame):
         results["high_bill_probability"] = float(proba.mean())
         print(f"High bill probability: {results['high_bill_probability']*100:.1f}%")
 
-    # XGBoost Forecaster
+    # XGBoost Monthly kWh Forecaster
     if os.path.exists("models/xgb_forecaster.pkl"):
         saved = joblib.load("models/xgb_forecaster.pkl")
         model = saved["model"]
         feature_cols = saved["features"]
-        
-        # We need the last 25 hours to create the 24 lag features + current power
-        if len(df) >= 25:
-            recent_df = df.copy().sort_values("datetime").tail(25).reset_index(drop=True)
-            
-            # Predict the "next hour" after the extremely last hour in the dataset
-            # Feature dict
-            feat_dict = {}
-            # Current power is the very last recorded power
-            current_idx = len(recent_df) - 1
-            feat_dict['avg_power'] = recent_df.loc[current_idx, 'avg_power']
-            feat_dict['hour_of_day'] = (recent_df.loc[current_idx, 'datetime'] + pd.Timedelta(hours=1)).hour
-            feat_dict['day_of_week'] = (recent_df.loc[current_idx, 'datetime'] + pd.Timedelta(hours=1)).dayofweek
-            feat_dict['is_weekend'] = 1 if feat_dict['day_of_week'] in [5, 6] else 0
-            
-            for i in range(1, 25): # lag_1 to lag_24
-                # power_lag_1 is t-1, power_lag_2 is t-2, etc. (Target is t+1).
-                target_idx = current_idx - i
-                feat_dict[f'power_lag_{i}'] = recent_df.loc[target_idx, 'avg_power']
-            
-            # Convert dictionary to DataFrame for prediction
-            X_pred = pd.DataFrame([feat_dict], columns=feature_cols).values
-            prediction = model.predict(X_pred)[0]
-            
-            results["next_hour_power_prediction_w"] = float(prediction)
-            print(f"XGBoost next hour predicted power: {prediction:.2f} W")
+
+        month_df = df.copy().sort_values("datetime").reset_index(drop=True)
+        month_df['year_month'] = month_df['datetime'].dt.to_period('M')
+        current_month = month_df['year_month'].iloc[-1]
+        month_df = month_df[month_df['year_month'] == current_month].copy()
+
+        if len(month_df) < 1:
+            print("No data for the current month — skipping XGBoost monthly inference.")
         else:
-            print("Not enough recent data (need 25 hours) for XGBoost Inference.")
+            month_df['energy_so_far_kwh'] = month_df['energy_kwh'].cumsum()
+            month_df['hours_elapsed_in_month'] = range(1, len(month_df) + 1)
+            month_df['days_elapsed']  = month_df['hours_elapsed_in_month'] / 24.0
+            month_df['days_in_month'] = month_df['datetime'].dt.days_in_month.astype(float)
+            month_df['days_remaining'] = (month_df['days_in_month'] - month_df['days_elapsed']).clip(lower=0)
+            month_df['avg_daily_kwh'] = month_df['energy_so_far_kwh'] / month_df['days_elapsed'].clip(lower=1/24)
+            month_df['projected_kwh'] = month_df['avg_daily_kwh'] * month_df['days_in_month']
+            month_df['power_rolling_24h']  = month_df['avg_power'].rolling(24,  min_periods=1).mean()
+            month_df['power_rolling_168h'] = month_df['avg_power'].rolling(168, min_periods=1).mean()
+            month_df['day_of_month']  = month_df['datetime'].dt.day
+            month_df['month_of_year'] = month_df['datetime'].dt.month
+
+            last_row = month_df.iloc[-1]
+            feat_dict = {col: last_row[col] for col in feature_cols}
+            X_pred = pd.DataFrame([feat_dict], columns=feature_cols).values
+            prediction = float(model.predict(X_pred)[0])
+
+            results["predicted_monthly_kwh"] = round(prediction, 3)
+            results["energy_so_far_kwh"]     = round(float(last_row['energy_so_far_kwh']), 3)
+            results["days_elapsed"]           = round(float(last_row['days_elapsed']), 1)
+            results["days_remaining"]         = round(float(last_row['days_remaining']), 1)
+            print(f"XGBoost predicted monthly total: {prediction:.3f} kWh  "
+                  f"({last_row['energy_so_far_kwh']:.3f} kWh logged so far, "
+                  f"{last_row['days_remaining']:.1f} days remaining)")
 
     return df, results
 
