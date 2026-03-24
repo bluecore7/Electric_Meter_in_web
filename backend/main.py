@@ -336,7 +336,7 @@ def get_live(uid=Depends(verify_user)):
 @app.get("/stats/hourly", tags=["Statistics"])
 def stats_hourly(
     uid=Depends(verify_user),
-    days: int = Query(default=1, ge=1, le=30)
+    days: int = Query(default=1, ge=1, le=90)
 ):
     """
     Returns hourly averaged stats from Firebase.
@@ -702,7 +702,7 @@ def get_isolation_forest_anomalies(uid=Depends(verify_user), days: int = 1):
         return {"error": "Isolation Forest model not trained.", "status": 500}
     saved    = joblib.load(model_path)
     if_model = saved["model"]; scaler = saved["scaler"]; features = saved["features"]
-    hourly   = stats_hourly(uid=uid, days=max(days, 1))
+    hourly   = stats_hourly(uid=uid, days=30)
     active   = [h for h in hourly if h.get("avg_voltage", 0) > 50]
     if not active:
         return {"anomaly_count": 0, "total_hours": 0, "flagged": []}
@@ -739,7 +739,7 @@ def get_load_type(uid=Depends(verify_user), hours: int = Query(default=24, ge=1,
     km        = saved["model"]; scaler = saved["scaler"]
     features  = saved["features"]; label_map = saved["label_map"]
     human     = {0: "Standby", 1: "Light Load", 2: "Medium Load", 3: "Heavy Load"}
-    hourly    = stats_hourly(uid=uid, days=max(1, (hours//24)+1))
+    hourly    = stats_hourly(uid=uid, days=30)
     active    = [h for h in hourly if h.get("avg_voltage",0) > 50][-hours:]
     if not active:
         return {"error": "No active hourly data.", "status": 400}
@@ -761,7 +761,7 @@ def get_bill_risk(uid=Depends(verify_user)):
         return {"error": "Bill predictor model not trained.", "status": 500}
     saved        = joblib.load(model_path)
     rf           = saved["model"]; scaler = saved["scaler"]; feature_cols = saved["features"]
-    hourly       = stats_hourly(uid=uid, days=7)
+    hourly       = stats_hourly(uid=uid, days=30)
     if not hourly or len(hourly) < 7:
         return {"error": "Need at least 7 hours of data.", "status": 400}
     powers = [h.get("avg_power",0) for h in hourly]
@@ -816,7 +816,7 @@ def get_forecast(uid=Depends(verify_user)):
     net.load_state_dict(torch.load(model_path, map_location="cpu", weights_only=True))
     net.eval()
 
-    hourly = stats_hourly(uid=uid, days=3)
+    hourly = stats_hourly(uid=uid, days=30)
     active = [h for h in hourly if h.get("avg_voltage",0) > 50]
     if len(active) < 24:
         return {"error": f"Need 24 hours of data (found {len(active)}).", "status": 400}
