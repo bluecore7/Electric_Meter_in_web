@@ -600,10 +600,9 @@ async function loadStatisticsPage() {
   const days = { today: 1, yesterday: 2, "7d": 7, "30d": 30 }[statView] || 1;
   showLoading(true);
   try {
-    const [summary, hourly, anomalies] = await Promise.all([
+    const [summary, hourly] = await Promise.all([
       api("/stats/summary"),
-      api(`/stats/hourly?days=${days}`),
-      api(`/ml/anomalies?days=${days}`),
+      api(`/stats/hourly?days=${days}`)
     ]);
     hourlyData = hourly;
 
@@ -653,8 +652,7 @@ async function loadStatisticsPage() {
 
     updateStatPeriodLabel();
     renderHourlyCharts(filtered);
-    renderAnomalyLog(anomalies);
-    runMLInference(filtered);
+    // Legacy frontend ML inference & anomaly log removed.
     renderOutageTable();
   } catch (e) {
     toast("Failed to load statistics: " + e.message, "error");
@@ -748,142 +746,6 @@ function renderHourlyCharts(data) {
 }
 
 // Anomaly type metadata — what each type means in plain English
-const ANOMALY_META = {
-  LOW_VOLTAGE: {
-    label: "LOW VOLTAGE",
-    color: "#f87171", // red
-    icon: "📉",
-    plain:
-      "Power was ON but supply voltage was weak (below 210V). " +
-      "This means TNEB supply quality was poor during this hour. " +
-      "Not a power cut — the power was on, just at dangerously low voltage. " +
-      "This can overheat motors and damage equipment.",
-    what_to_do:
-      "Check if this happens repeatedly — if yes, log a complaint with TNEB.",
-  },
-  HIGH_VOLTAGE: {
-    label: "HIGH VOLTAGE",
-    color: "#fbbf24", // amber
-    icon: "📈",
-    plain:
-      "Voltage exceeded 250V. TNEB standard is 220–240V. " +
-      "High voltage can burn out sensitive electronics, LEDs, and AC compressors.",
-    what_to_do: "If frequent, use a voltage stabiliser. Log with TNEB.",
-  },
-  HIGH_POWER: {
-    label: "HIGH LOAD",
-    color: "#a78bfa", // purple
-    icon: "⚡",
-    plain:
-      "An unusually large load was detected this hour (above 6000W). " +
-      "This could be a geyser + AC + cooking all running simultaneously, " +
-      "or possibly a fault in wiring causing abnormal current draw.",
-    what_to_do:
-      "Check which appliances were running. If unexpected, inspect wiring.",
-  },
-  POWER_OUTLIER: {
-    label: "USAGE OUTLIER",
-    color: "#38bdf8", // blue
-    icon: "🔍",
-    plain:
-      "This hour's power consumption was statistically far from your normal pattern " +
-      "(more than 2.5 standard deviations away — this is the Isolation Forest signal). " +
-      "Not necessarily a problem — could be you ran the geyser or had guests over.",
-    what_to_do:
-      "Review what was running during this hour. No action needed unless it repeats.",
-  },
-};
-
-function renderAnomalyLog(anomalies) {
-  const el = document.getElementById("anomalyTable");
-  if (!el) return;
-  if (!anomalies || !anomalies.length) {
-    el.innerHTML = `<div class="empty-state">
-      <div style="font-size:1.4rem;margin-bottom:8px">✓</div>
-      <div>No anomalies detected in this period</div>
-      <div style="font-size:11px;margin-top:6px;color:var(--text-muted)">Grid voltage and load are within normal ranges</div>
-    </div>`;
-    return;
-  }
-
-  // Build a legend explaining what anomaly detection IS
-  const legend = `<div class="anomaly-legend">
-    <div class="al-title">📖 What is anomaly detection?</div>
-    <div class="al-body">
-      The system watches your hourly voltage and power readings. 
-      Anything that falls outside your normal pattern — or crosses a hard threshold — gets flagged here.
-      <strong>0V readings are power outages</strong> and are shown in the Power Outage table below, not here.
-      These anomalies are cases where <strong>power was on</strong> but something unusual happened.
-    </div>
-  </div>`;
-
-  const rows = anomalies
-    .flatMap((a) =>
-      (a.flags || []).map((f) => {
-        const meta = ANOMALY_META[f.type] || {
-          label: f.type,
-          color: "#64748b",
-          icon: "⚠",
-          plain: f.meaning || "Unusual reading detected",
-          what_to_do: "Monitor for recurrence.",
-        };
-        // Use meaning from backend if available (it's more specific), else use our meta
-        const description = f.meaning || meta.plain;
-        const hourStr = a.hour ? a.hour.replace("_", " ") + ":00" : "—";
-        return `<div class="anomaly-card">
-        <div class="anomaly-card-top">
-          <div class="ac-badge" style="background:${meta.color}18;border-color:${meta.color}33;color:${meta.color}">
-            ${meta.icon} ${meta.label}
-          </div>
-          <div class="ac-hour">Hour: ${hourStr}</div>
-          <div class="ac-val" style="color:${meta.color}">${fmtNum(f.value, 1)} ${f.unit}</div>
-        </div>
-        <div class="ac-desc">${description}</div>
-        <div class="ac-action">→ ${meta.what_to_do}</div>
-      </div>`;
-      }),
-    )
-    .join("");
-
-  el.innerHTML = legend + rows;
-}
-
-// ============================================================
-//  ML INFERENCE — from persistent Firebase hourly data
-//
-//  Plain English explanation of what each "model" does:
-//
-//  MODEL 1 — Isolation Forest (anomaly detection)
-//    Imagine your hourly power readings on a number line.
-//    Normal hours cluster together (200–800W).
-//    The Forest builds random dividing lines across the data.
-//    Outlier hours (the spike at 3000W at 2am) are far from the cluster —
-//    a single dividing line isolates them. Normal hours need many lines.
-//    Fewer lines needed = more anomalous. We approximate this with Z-score.
-//    Z-score = how many "standard deviations" a point is from the average.
-//    A Z-score of 2.5 means "this reading is 2.5x the typical spread away
-//    from your average" — that's unusual enough to flag.
-//
-//  MODEL 2 — KMeans (load classification)
-//    Groups your hours into 4 buckets by average power.
-//    No labels needed — it finds the natural groupings itself.
-//    Your typical midnight is always <100W (Standby).
-//    AC on hours cluster around 1500W (Medium).
-//    Cooking hours cluster around 2500W+ (Heavy).
-//    KMeans puts imaginary center-points, assigns each hour to the nearest,
-//    then moves the centers to the middle of their groups, repeats until stable.
-//
-//  MODEL 3 — Random Forest (bill risk forecast)
-//    Takes your average hourly kWh and extrapolates to 30 days.
-//    Compares that projection to the 300 kWh Slab-3 threshold.
-//    In a real trained RF: 200 decision trees each vote yes/no on "will you
-//    exceed 300 kWh?" and the majority wins. Here we use the math directly
-//    since we're doing it in the browser without trained .pkl files.
-//
-//  WHEN DOES REAL TRAINING HAPPEN?
-//    Run: python ml_pipeline.py --mode train
-//    After 30+ days of Firebase data. Until then, these client-side
-//    approximations give you the same signal.
 // ============================================================
 function runMLInference(data) {
   // ── Critical fix: EXCLUDE power outage hours (avg_voltage ~0)
@@ -1014,19 +876,25 @@ function runMLInference(data) {
   }[risk];
   const projBill = calcBillFull(proj30d);
   const projSlab =
-    proj30d <= 100
+    proj30d <= 50
       ? "Slab 1 (Free!)"
       : proj30d <= 200
-        ? "Slab 2 (₹2.25)"
-        : proj30d <= 500
-          ? "Slab 3 (₹4.50)"
-          : "Slab 4 (₹6.60)";
+        ? "Slab 2 (\u20b94.70)"
+        : proj30d <= 250
+          ? "Slab 3 (\u20b96.30)"
+          : proj30d <= 300
+            ? "Slab 4 (\u20b98.40)"
+            : proj30d <= 400
+              ? "Slab 5 (\u20b99.45)"
+              : proj30d <= 500
+                ? "Slab 6 (\u20b910.50)"
+                : "Slab 7 (\u20b911.55)";
   const action =
     risk === "LOW"
       ? "✓ Very efficient usage"
-      : risk === "MEDIUM"
-        ? "⚠ Reduce AC/geyser hours to stay in Slab 2"
-        : "🚨 Likely Slab 3/4 — target: run AC fewer hours";
+        ? "\u26a0 Reduce usage to stay in Slab 2 (\u20b94.70)"
+        : "\uD83D\uDEA8 Likely Slab 5\u20137 \u2014 target: reduce AC/geyser hours";
+        : "\uD83D\uDEA8 Likely Slab 5\u20137 \u2014 target: reduce AC/geyser hours";
 
   setTextColor("mlBillRisk", risk, "ml-score-val " + riskColor);
   setText("mlProjUnits", `${fmtNum(proj30d, 1)} kWh → ${projSlab}`);
@@ -1397,24 +1265,34 @@ window.calcBill = () => {
 };
 
 function calcBillFull(units) {
+  // TNEB LT-I Domestic — 7-slab progressive tariff (monthly)
   if (units <= 0)
-    return { energy: 0, fixed: 45, duty: 0, total: 45, slab: "Slab 1 — Free" };
+    return { energy: 0, fixed: 45, duty: 0, total: 45, slab: "Slab 1 \u2014 Free (0\u201350 units)" };
   let energy = 0;
-  if (units > 100) energy += Math.min(units - 100, 100) * 2.25;
-  if (units > 200) energy += Math.min(units - 200, 300) * 4.5;
-  if (units > 500) energy += (units - 500) * 6.6;
+  if (units > 50)  energy += Math.min(units - 50,  150) * 4.70;   // 51\u2013200
+  if (units > 200) energy += Math.min(units - 200,  50) * 6.30;   // 201\u2013250
+  if (units > 250) energy += Math.min(units - 250,  50) * 8.40;   // 251\u2013300
+  if (units > 300) energy += Math.min(units - 300, 100) * 9.45;   // 301\u2013400
+  if (units > 400) energy += Math.min(units - 400, 100) * 10.50;  // 401\u2013500
+  if (units > 500) energy += (units - 500)               * 11.55; // Above 500
   const fixed =
     units <= 100 ? 45 : units <= 200 ? 75 : units <= 500 ? 115 : 155;
   const duty = energy * 0.15;
   const total = energy + fixed + duty;
   const slab =
-    units <= 100
-      ? "Slab 1 — Free"
+    units <= 50
+      ? "Slab 1 \u2014 Free (0\u201350 units)"
       : units <= 200
-        ? "Slab 2 — ₹2.25"
-        : units <= 500
-          ? "Slab 3 — ₹4.50"
-          : "Slab 4 — ₹6.60";
+        ? "Slab 2 \u2014 \u20b94.70/unit (51\u2013200)"
+        : units <= 250
+          ? "Slab 3 \u2014 \u20b96.30/unit (201\u2013250)"
+          : units <= 300
+            ? "Slab 4 \u2014 \u20b98.40/unit (251\u2013300)"
+            : units <= 400
+              ? "Slab 5 \u2014 \u20b99.45/unit (301\u2013400)"
+              : units <= 500
+                ? "Slab 6 \u2014 \u20b910.50/unit (401\u2013500)"
+                : "Slab 7 \u2014 \u20b911.55/unit (Above 500)";
   return {
     energy: Math.round(energy * 100) / 100,
     fixed,
@@ -1425,14 +1303,21 @@ function calcBillFull(units) {
 }
 
 function updateChargesSlabPointer(units) {
+  // 7 slab bands, each ~14.3% of the visual track
   const pct =
-    units <= 100
-      ? (units / 100) * 20
+    units <= 50
+      ? (units / 50) * 14.3
       : units <= 200
-        ? 20 + ((units - 100) / 100) * 20
-        : units <= 500
-          ? 40 + ((units - 200) / 300) * 30
-          : Math.min(100, 70 + ((units - 500) / 300) * 30);
+        ? 14.3 + ((units - 50) / 150) * 14.3
+        : units <= 250
+          ? 28.6 + ((units - 200) / 50) * 14.3
+          : units <= 300
+            ? 42.9 + ((units - 250) / 50) * 14.3
+            : units <= 400
+              ? 57.2 + ((units - 300) / 100) * 14.3
+              : units <= 500
+                ? 71.5 + ((units - 400) / 100) * 14.3
+                : Math.min(100, 85.8 + ((units - 500) / 300) * 14.2);
   const ptr = document.getElementById("svPtr");
   if (ptr) ptr.style.marginLeft = `calc(${pct}% - 6px)`;
 }
@@ -1507,14 +1392,21 @@ window.nextMonth = () => {
 //  SLAB INDICATOR (dashboard)
 // ============================================================
 function updateSlabIndicator(units) {
+  // 7 slab bands, each ~14.3% of the visual track
   const pct =
-    units <= 100
-      ? (units / 100) * 25
+    units <= 50
+      ? (units / 50) * 14.3
       : units <= 200
-        ? 25 + ((units - 100) / 100) * 25
-        : units <= 500
-          ? 50 + ((units - 200) / 300) * 25
-          : Math.min(100, 75 + ((units - 500) / 300) * 25);
+        ? 14.3 + ((units - 50) / 150) * 14.3
+        : units <= 250
+          ? 28.6 + ((units - 200) / 50) * 14.3
+          : units <= 300
+            ? 42.9 + ((units - 250) / 50) * 14.3
+            : units <= 400
+              ? 57.2 + ((units - 300) / 100) * 14.3
+              : units <= 500
+                ? 71.5 + ((units - 400) / 100) * 14.3
+                : Math.min(100, 85.8 + ((units - 500) / 300) * 14.2);
   const needle = document.getElementById("slabNeedle");
   if (needle) needle.style.marginLeft = `calc(${pct}% - 5px)`;
 }
@@ -2088,7 +1980,7 @@ window.fetchPrediction = async () => {
         
         if (res.error) {
             uiPower.innerHTML = "Err";
-            uiCurrent.innerHTML = "�";
+            uiCurrent.innerHTML = "�";
             uiTrend.innerHTML = '?? <span style="color:var(--red)">' + res.error + '</span>';
             if (res.error.includes("25 hours")) {
                 uiTrend.innerHTML += '<br><span style="font-size:11px;color:var(--amber)">Leave the ESP32 online to collect enough data.</span>';
@@ -2107,7 +1999,7 @@ window.fetchPrediction = async () => {
             }
         }
     } catch (e) {
-        uiPower.innerHTML = "�";
+        uiPower.innerHTML = "�";
         uiTrend.innerHTML = '<span style="color:var(--red)">Connection Error: ' + e.message + '</span>';
     } finally {
         isPredicting = false;
@@ -2126,208 +2018,306 @@ window.fetchPrediction = () => loadPredictionPage();
 
 window.loadPredictionPage = async () => {
   await Promise.allSettled([
-    fetchMonthlyPrediction(),
-    fetchBillRisk(),
-    fetchLoadType(),
-    fetchForecast(),
-    fetchIFAnomalies(),
+    fetchNilm(),
+    fetchEnergyCost(),
+    fetchVoltageFluctuation(),
   ]);
 };
 
-// ── 1. XGBoost Monthly Forecast
-async function fetchMonthlyPrediction() {
-  const el = document.getElementById('predMonthlyBody');
-  el.innerHTML = '<div class="skeleton-item"></div>';
-  try {
-    const d = await api('/ml/predict');
-    if (d.error) { el.innerHTML = `<div class="empty-state" style="color:var(--red)">${d.error}</div>`; return; }
-    const b = d.estimated_bill || {};
-    const pct = Math.min(100, Math.round((d.energy_so_far_kwh / (d.predicted_monthly_kwh || 1)) * 100));
-    el.innerHTML = `
-      <div style="display:flex;align-items:flex-end;gap:8px;margin-bottom:6px;">
-        <span style="font-size:2.4rem;font-weight:900;color:var(--amber);font-family:'Rajdhani',sans-serif;">${d.predicted_monthly_kwh}</span>
-        <span style="color:var(--text-dim);font-size:0.9rem;margin-bottom:8px;">kWh predicted this month</span>
-      </div>
-      <div style="background:rgba(255,255,255,0.05);border-radius:6px;height:6px;overflow:hidden;margin-bottom:12px;">
-        <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#fbbf24,#d97706);border-radius:6px;transition:width 0.8s;"></div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:0.82rem;">
-        <div style="background:rgba(255,255,255,0.04);border-radius:8px;padding:8px 10px;">
-          <div style="color:var(--text-dim)">Consumed so far</div>
-          <div style="font-weight:700;color:var(--text)">${d.energy_so_far_kwh} kWh</div>
-        </div>
-        <div style="background:rgba(255,255,255,0.04);border-radius:8px;padding:8px 10px;">
-          <div style="color:var(--text-dim)">Days remaining</div>
-          <div style="font-weight:700;color:var(--text)">${d.days_remaining} days</div>
-        </div>
-        <div style="background:rgba(255,255,255,0.04);border-radius:8px;padding:8px 10px;">
-          <div style="color:var(--text-dim)">Estimated bill</div>
-          <div style="font-weight:700;color:var(--amber)">₹${b.total}</div>
-        </div>
-        <div style="background:rgba(255,255,255,0.04);border-radius:8px;padding:8px 10px;">
-          <div style="color:var(--text-dim)">Slab</div>
-          <div style="font-weight:700;color:var(--text);font-size:0.75rem;">${d.slab}</div>
-        </div>
-      </div>`;
-  } catch(e) {
-    el.innerHTML = `<div class="empty-state" style="color:var(--red)">Error: ${e.message}</div>`;
-  }
-}
+// ── 6. NILM — Appliance Disaggregation
+let nilmDoughnutInst = null;
 
-// ── 2. Random Forest Bill Risk
-async function fetchBillRisk() {
-  const el = document.getElementById('predBillRiskBody');
-  el.innerHTML = '<div class="skeleton-item"></div>';
+async function fetchNilm() {
+  const gridEl = document.getElementById('nilmApplianceGrid');
+  const metaEl = document.getElementById('nilmMeta');
+  if (!gridEl) return;
+  gridEl.innerHTML = '<div class="skeleton-item"></div><div class="skeleton-item" style="margin-top:8px;opacity:0.6"></div>';
   try {
-    const d = await api('/ml/bill-risk');
-    if (d.error) { el.innerHTML = `<div class="empty-state" style="color:var(--red)">${d.error}</div>`; return; }
-    const pct = d.high_bill_probability;
-    const color = pct < 30 ? '#34d399' : pct < 70 ? '#fbbf24' : '#f87171';
-    const riskColors = { Low: '#34d399', Medium: '#fbbf24', High: '#f87171' };
-    const rc = riskColors[d.risk_label] || '#fbbf24';
-    el.innerHTML = `
-      <div style="display:flex;align-items:center;gap:20px;padding:8px 0 12px;">
-        <div style="position:relative;width:90px;height:90px;flex-shrink:0;">
-          <svg viewBox="0 0 90 90" style="transform:rotate(-90deg)">
-            <circle cx="45" cy="45" r="38" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="10"/>
-            <circle cx="45" cy="45" r="38" fill="none" stroke="${color}" stroke-width="10"
-              stroke-dasharray="${2*Math.PI*38}" stroke-dashoffset="${2*Math.PI*38*(1-pct/100)}"
-              stroke-linecap="round" style="transition:stroke-dashoffset 1s;"/>
-          </svg>
-          <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;">
-            <span style="font-size:1.3rem;font-weight:900;color:${color};font-family:'Rajdhani';">${pct}%</span>
-          </div>
-        </div>
-        <div>
-          <div style="font-size:1.6rem;font-weight:900;color:${rc};font-family:'Rajdhani';">${d.risk_label} Risk</div>
-          <div style="font-size:0.8rem;color:var(--text-dim);margin-top:4px;">Probability of exceeding 300 kWh this billing period</div>
-          <div style="font-size:0.78rem;color:var(--text-dim);margin-top:6px;">Analysed ${d.hours_analyzed} hours · Latest hr: ${d.latest_hour_probability}%</div>
-        </div>
-      </div>`;
-  } catch(e) {
-    el.innerHTML = `<div class="empty-state" style="color:var(--red)">Error: ${e.message}</div>`;
-  }
-}
-
-// ── 3. KMeans Load Classification
-async function fetchLoadType() {
-  const el = document.getElementById('predLoadBody');
-  el.innerHTML = '<div class="skeleton-item"></div>';
-  try {
-    const d = await api('/ml/load');
-    if (d.error) { el.innerHTML = `<div class="empty-state" style="color:var(--red)">${d.error}</div>`; return; }
-    const lc = {Standby:'#38bdf8','Light Load':'#34d399','Medium Load':'#fbbf24','Heavy Load':'#f87171'};
-    const typeColor = lc[d.current_load_type] || '#e2e8f0';
-    el.innerHTML = `
-      <div style="text-align:center;padding:4px 0 8px;">
-        <div style="font-size:1.8rem;font-weight:900;color:${typeColor};font-family:'Rajdhani';">${d.current_load_type}</div>
-        <div style="font-size:0.75rem;color:var(--text-dim);">Current load category</div>
-      </div>`;
-    const dist = d.distribution;
-    const total = Object.values(dist).reduce((a,b)=>a+b,0) || 1;
-    const colors = ['#38bdf8','#34d399','#fbbf24','#f87171'];
-    const labels = Object.keys(dist);
-    const vals   = Object.values(dist);
-
-    if (loadDoughnutChartInst) { loadDoughnutChartInst.destroy(); loadDoughnutChartInst = null; }
-    const ctx = document.getElementById('loadDoughnutChart').getContext('2d');
-    loadDoughnutChartInst = new Chart(ctx, {
-      type: 'doughnut',
-      data: { labels, datasets:[{ data:vals, backgroundColor:colors, borderWidth:0, hoverOffset:4 }] },
-      options: {
-        responsive:true, maintainAspectRatio:false,
-        cutout:'65%',
-        plugins: {
-          legend:{ position:'right', labels:{ color:'#94a3b8', font:{ size:11 }, boxWidth:10, padding:8 } }
-        }
-      }
-    });
-  } catch(e) {
-    el.innerHTML = `<div class="empty-state" style="color:var(--red)">Error: ${e.message}</div>`;
-  }
-}
-
-// ── 4. PyTorch 24-Hour Forecast
-async function fetchForecast() {
-  const meta = document.getElementById('predForecastMeta');
-  meta.textContent = 'Loading…';
-  try {
-    const d = await api('/ml/forecast');
-    if (d.error) { meta.innerHTML = `<span style="color:var(--red)">${d.error}</span>`; return; }
-    meta.textContent = `From ${d.from_hour}  ·  ${d.model}`;
-    if (forecastChartInst) { forecastChartInst.destroy(); forecastChartInst = null; }
-    const ctx = document.getElementById('forecastChart').getContext('2d');
-    forecastChartInst = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: d.hours,
-        datasets: [{
-          label:'Predicted Power (W)',
-          data: d.forecast_w,
-          borderColor:'#34d399',
-          backgroundColor:'rgba(52,211,153,0.08)',
-          borderWidth:2,
-          pointRadius:3,
-          pointBackgroundColor:'#34d399',
-          fill:true,
-          tension:0.35
-        }]
-      },
-      options: {
-        responsive:true, maintainAspectRatio:false,
-        scales: {
-          x:{ ticks:{ color:'#64748b', font:{size:10} }, grid:{ color:'rgba(255,255,255,0.05)' } },
-          y:{ ticks:{ color:'#64748b' }, grid:{ color:'rgba(255,255,255,0.05)' }, beginAtZero:true }
-        },
-        plugins:{ legend:{ display:false } }
-      }
-    });
-  } catch(e) {
-    meta.innerHTML = `<span style="color:var(--red)">Error: ${e.message}</span>`;
-  }
-}
-
-// ── 5. Isolation Forest Anomalies
-async function fetchIFAnomalies() {
-  const el = document.getElementById('predIFBody');
-  el.innerHTML = '<div class="skeleton-item"></div>';
-  try {
-    const d = await api('/ml/anomalies/isolation-forest?days=1');
-    if (d.error) { el.innerHTML = `<div class="empty-state" style="color:var(--red)">${d.error}</div>`; return; }
-    if (d.anomaly_count === 0) {
-      el.innerHTML = `<div class="empty-state" style="color:var(--green);padding:1.2rem;">✓ No power anomalies detected by Isolation Forest in the last 24 hours.</div>`;
+    const d = await api('/ml/nilm?days=7');
+    if (d.error) {
+      gridEl.innerHTML = `<div class="empty-state" style="color:var(--red)">${d.error}</div>`;
       return;
     }
-    const pct = d.anomaly_pct;
-    let rows = d.flagged.slice(0,10).map(f =>
-      `<tr>
-        <td>${f.hour}</td>
-        <td>${f.avg_power} W</td>
-        <td style="font-size:11px;color:${f.score < -0.05 ? '#f87171' : '#fbbf24'}">${f.score.toFixed(4)}</td>
-       </tr>`
-    ).join('');
-    el.innerHTML = `
-      <div style="display:flex;gap:24px;align-items:center;padding:12px 0 14px;">
-        <div style="text-align:center;">
-          <div style="font-size:2rem;font-weight:900;color:#f87171;font-family:'Rajdhani';">${d.anomaly_count}</div>
-          <div style="font-size:11px;color:var(--text-dim);">anomalous hours</div>
+    if (metaEl) {
+      metaEl.textContent = `Analysed ${d.hours_analyzed}h over ${d.days_analyzed} days · Total measured: ${d.total_measured_kwh} kWh · Avg: ${d.avg_measured_watts}W`;
+    }
+
+    // Render appliance cards
+    const colorMap = {
+      'Refrigerator':    '#38bdf8',
+      'Ceiling Fan':     '#34d399',
+      'Air Conditioner': '#f87171',
+      'Lights / LED':    '#fbbf24',
+      'Television':      '#a78bfa',
+      'Water Heater':    '#fb923c',
+      'Washing Machine': '#e879f9',
+      'Miscellaneous':   '#64748b',
+    };
+    gridEl.innerHTML = d.appliances.map(a => {
+      const col = colorMap[a.name] || '#94a3b8';
+      return `<div class="appliance-card" style="border-left:3px solid ${col}">
+        <div class="ac-left">
+          <span class="ac-icon">${a.icon}</span>
+          <div>
+            <div class="ac-name">${a.name}</div>
+            <div class="ac-watts">${a.estimated_watts}W · ${a.run_hours_per_day}h/day</div>
+          </div>
         </div>
-        <div style="text-align:center;">
-          <div style="font-size:2rem;font-weight:900;color:#fbbf24;font-family:'Rajdhani';">${pct}%</div>
-          <div style="font-size:11px;color:var(--text-dim);">of all hours</div>
+        <div class="ac-right">
+          <div class="ac-kwh">${a.estimated_daily_kwh} <span class="ac-kwh-unit">kWh/day</span></div>
+          <div class="ac-monthly">${a.estimated_monthly_kwh} kWh/mo</div>
+          <div class="ac-pct-bar"><div style="width:${a.percent_share}%;background:${col}"></div></div>
+          <div class="ac-pct-lbl">${a.percent_share}%</div>
         </div>
-        <div style="font-size:0.78rem;color:var(--text-dim);flex:1;">
-          Isolation Forest flagged these hours as statistically unusual.<br>
-          Negative scores = more anomalous. Trained on 34k+ UCI records (5% contamination).
-        </div>
-      </div>
-      <div class="tbl-wrap" style="max-height:200px;overflow-y:auto;">
-        <table class="data-table">
-          <thead><tr><th>Hour</th><th>Avg Power</th><th>Anomaly Score</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
       </div>`;
+    }).join('');
+
+    // NILM doughnut chart
+    const labels = d.appliances.map(a => a.name);
+    const vals   = d.appliances.map(a => a.estimated_daily_kwh);
+    const colors = d.appliances.map(a => colorMap[a.name] || '#94a3b8');
+
+    if (nilmDoughnutInst) { nilmDoughnutInst.destroy(); nilmDoughnutInst = null; }
+    const ctx = document.getElementById('nilmDoughnutChart');
+    if (ctx) {
+      nilmDoughnutInst = new Chart(ctx.getContext('2d'), {
+        type: 'doughnut',
+        data: { labels, datasets: [{ data: vals, backgroundColor: colors, borderWidth: 0, hoverOffset: 6 }] },
+        options: {
+          responsive: true, maintainAspectRatio: false, cutout: '60%',
+          plugins: {
+            legend: { position: 'right', labels: { color: '#94a3b8', font: { size: 10 }, boxWidth: 10, padding: 6 } }
+          }
+        }
+      });
+    }
+
+    // Store avg daily kWh for energy cost calculator reference
+    window._nilmAvgDailyKwh = d.avg_daily_kwh;
+
   } catch(e) {
-    el.innerHTML = `<div class="empty-state" style="color:var(--red)">Error: ${e.message}</div>`;
+    gridEl.innerHTML = `<div class="empty-state" style="color:var(--red)">NILM Error: ${e.message}</div>`;
   }
 }
+
+// ── 7. Energy Cost Calculator
+let _ecCooldown = null;
+
+window.onEnergyCostInput = () => {
+  clearTimeout(_ecCooldown);
+  _ecCooldown = setTimeout(fetchEnergyCost, 500);
+};
+
+async function fetchEnergyCost() {
+  const periodEl = document.getElementById('ecPeriod');
+  const kwhEl    = document.getElementById('ecKwh');
+  const slabEl   = document.getElementById('ecSlabBreakdown');
+  const totalEl  = document.getElementById('ecTotalRow');
+  const noteEl   = document.getElementById('ecMlNote');
+  const saveEl   = document.getElementById('ecSavings');
+  const refEl    = document.getElementById('ecPredRefBody');
+  if (!periodEl) return;
+
+  const period = periodEl.value;
+  const kwhVal = kwhEl ? kwhEl.value : '';
+  let url = `/ml/energy-cost?period=${period}`;
+  if (kwhVal) url += `&kwh=${kwhVal}`;
+
+  if (slabEl) slabEl.innerHTML = '<div class="skeleton-item" style="height:24px;"></div>';
+  if (totalEl) totalEl.style.display = 'none';
+  if (saveEl) saveEl.style.display = 'none';
+
+  try {
+    const d = await api(url);
+    if (d.error) {
+      if (slabEl) slabEl.innerHTML = `<div class="empty-state" style="color:var(--red)">${d.error}</div>`;
+      return;
+    }
+
+    // Source note
+    const srcMap = { user_input: '✏️ Manual input', xgboost_prediction: '🤖 XGBoost prediction', nilm_estimate: '🔍 NILM estimate' };
+    if (noteEl) {
+      noteEl.textContent = `Source: ${srcMap[d.kwh_source] || d.kwh_source} · ${d.kwh_input} kWh for ${d.months === 2 ? 'bi-monthly' : 'monthly'} period`;
+    }
+
+    // Slab breakdown
+    if (slabEl) {
+      slabEl.innerHTML = d.slab_breakdown.map(s => `
+        <div class="ec-slab-row">
+          <span class="ec-slab-name">${s.slab}</span>
+          <span class="ec-slab-rate">${s.rate}</span>
+          <span class="ec-slab-units">${s.units} kWh</span>
+          <span class="ec-slab-charge">₹${s.charge}</span>
+        </div>`).join('') +
+        `<div class="ec-slab-row ec-slab-summary">
+          <span>Fixed Charge</span><span></span><span></span><span>₹${d.fixed_charge}</span>
+        </div>
+        <div class="ec-slab-row ec-slab-summary">
+          <span>Electricity Duty (15%)</span><span></span><span></span><span>₹${d.electricity_duty}</span>
+        </div>`;
+    }
+
+    // Total
+    if (totalEl) {
+      document.getElementById('ecTotal').textContent = d.total_bill.toLocaleString('en-IN');
+      document.getElementById('ecSubLine').textContent = `${d.slab_label} · Energy ₹${d.energy_charge} + Fixed ₹${d.fixed_charge} + Duty ₹${d.electricity_duty}`;
+      totalEl.style.display = 'block';
+    }
+
+    // Savings row
+    if (saveEl) {
+      document.getElementById('ecSave').textContent = `₹${d.savings_if_10pct_less}`;
+      document.getElementById('ecExtra').textContent = `₹${d.extra_if_10pct_more}`;
+      saveEl.style.display = 'flex';
+    }
+
+    // Reference card — ML predicted kWh comparison
+    if (refEl) {
+      const nilmMonthly = window._nilmAvgDailyKwh ? (window._nilmAvgDailyKwh * 30).toFixed(3) : '—';
+      refEl.innerHTML = `
+        <div class="pred-ref-row"><span>Your input (${d.months === 2 ? 'bi-monthly' : 'monthly'})</span><strong>${d.kwh_input} kWh</strong></div>
+        ${d.ml_predicted_kwh ? `<div class="pred-ref-row"><span>XGBoost monthly prediction</span><strong style="color:var(--amber)">${d.ml_predicted_kwh} kWh</strong></div>` : ''}
+        <div class="pred-ref-row"><span>NILM estimated monthly</span><strong style="color:var(--blue)">${nilmMonthly} kWh</strong></div>
+        <div class="pred-ref-row"><span>Total estimated bill</span><strong style="color:var(--green)">₹${d.total_bill.toLocaleString('en-IN')}</strong></div>
+        <div style="margin-top:10px;font-size:11px;color:var(--text-dim);">
+          💡 If you reduce usage by 10%, you save <strong style="color:var(--green)">₹${d.savings_if_10pct_less}</strong>.
+          A 10% increase adds <strong style="color:var(--red)">₹${d.extra_if_10pct_more}</strong>.
+        </div>`;
+    }
+
+  } catch(e) {
+    if (slabEl) slabEl.innerHTML = `<div class="empty-state" style="color:var(--red)">Error: ${e.message}</div>`;
+  }
+}
+
+// ── 8. Voltage Fluctuation Predictor
+let vfHistChartInst = null;
+
+async function fetchVoltageFluctuation() {
+  const bodyEl   = document.getElementById('vfBody');
+  const badgeEl  = document.getElementById('vfAlertBadge');
+  const meterEl  = document.getElementById('vfMeterWrap');
+  const eventsEl = document.getElementById('vfEventsWrap');
+  const vsiBarEl = document.getElementById('vfVsiBar');
+  const vsiLblEl = document.getElementById('vfVsiLabel');
+  const evBodyEl = document.getElementById('vfEventsBody');
+  if (!bodyEl) return;
+
+  bodyEl.innerHTML = '<div class="skeleton-item"></div>';
+  try {
+    const d = await api('/ml/voltage-fluctuation?days=7');
+    if (d.error) {
+      bodyEl.innerHTML = `<div class="empty-state" style="color:var(--red)">${d.error}</div>`;
+      return;
+    }
+
+    // Alert badge
+    if (badgeEl) {
+      const bColors = { GREEN: '#34d399', YELLOW: '#fbbf24', RED: '#f87171' };
+      const col = bColors[d.alert_level] || '#94a3b8';
+      badgeEl.textContent = `${d.alert_emoji} ${d.alert_level}`;
+      badgeEl.style.cssText = `background:${col}20;color:${col};border:1px solid ${col}50;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:700;`;
+    }
+
+    // Summary body
+    const s = d.summary;
+    const trendIcon = d.stability_trend === 'improving' ? '📈' : d.stability_trend === 'worsening' ? '📉' : '➡️';
+    const alertCol = { GREEN: '#34d399', YELLOW: '#fbbf24', RED: '#f87171' }[d.alert_level] || '#e2e8f0';
+    bodyEl.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px;">
+        <div class="vf-stat"><span class="vf-val green-text">${s.stable_hours}</span><span class="vf-lbl">Stable hrs</span></div>
+        <div class="vf-stat"><span class="vf-val amber-text">${s.mild_hours}</span><span class="vf-lbl">Mild fluctuation</span></div>
+        <div class="vf-stat"><span class="vf-val red-text">${s.severe_hours}</span><span class="vf-lbl">Severe fluctuation</span></div>
+        <div class="vf-stat"><span class="vf-val" style="color:${alertCol}">${s.stable_pct}%</span><span class="vf-lbl">Stable %</span></div>
+      </div>
+      <div style="font-size:0.83rem;color:var(--text-dim);padding:8px 12px;background:rgba(0,0,0,0.2);border-radius:8px;">
+        ${trendIcon} <strong style="color:${alertCol}">${d.alert_message}</strong>
+        &nbsp;·&nbsp; Trend: <strong>${d.stability_trend}</strong>
+        &nbsp;·&nbsp; Analysed ${d.hours_analyzed}h
+      </div>`;
+
+    // VSI meter
+    if (meterEl && vsiBarEl && vsiLblEl) {
+      meterEl.style.display = 'block';
+      const vsiPct = Math.round(d.overall_vsi * 100);
+      const vsiCol = vsiPct >= 75 ? '#34d399' : vsiPct >= 50 ? '#fbbf24' : '#f87171';
+      vsiBarEl.style.cssText = `width:${vsiPct}%;background:linear-gradient(90deg,${vsiCol}80,${vsiCol});height:100%;border-radius:4px;transition:width 1s;`;
+      vsiLblEl.textContent = `${d.overall_vsi} / 1.00`;
+      vsiLblEl.style.color = vsiCol;
+    }
+
+    // Flagged events table
+    if (eventsEl && evBodyEl && d.flagged_events.length > 0) {
+      eventsEl.style.display = 'block';
+      evBodyEl.innerHTML = d.flagged_events.map(ev => {
+        const stCol = ev.status === 'SEVERE_FLUCTUATION' ? '#f87171' : '#fbbf24';
+        return `<tr>
+          <td style="font-size:11px;">${ev.hour}</td>
+          <td><span style="color:${stCol};font-size:11px;font-weight:700;">${ev.status.replace('_', ' ')}</span></td>
+          <td>${ev.min_v}V</td>
+          <td>${ev.max_v}V</td>
+          <td>${ev.max_v - ev.min_v}V</td>
+          <td>${ev.vsi}</td>
+          <td style="font-size:10px;color:var(--text-dim);">${(ev.advice || []).join('; ')}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    // VSI history chart
+    if (d.history && d.history.length) {
+      if (vfHistChartInst) { vfHistChartInst.destroy(); vfHistChartInst = null; }
+      const histCanvas = document.getElementById('vfHistoryChart');
+      if (histCanvas) {
+        const labels = d.history.map(h => h.hour.slice(-5)); // last 5 chars e.g. "22_14" → show hour
+        const vsiVals = d.history.map(h => h.vsi);
+        const pointColors = d.history.map(h =>
+          h.status === 'STABLE' ? '#34d399' :
+          h.status === 'MILD_FLUCTUATION' ? '#fbbf24' :
+          h.status === 'SEVERE_FLUCTUATION' ? '#f87171' : '#64748b'
+        );
+        vfHistChartInst = new Chart(histCanvas.getContext('2d'), {
+          type: 'line',
+          data: {
+            labels,
+            datasets: [{
+              label: 'VSI Score',
+              data: vsiVals,
+              borderColor: '#38bdf8',
+              backgroundColor: 'rgba(56,189,248,0.07)',
+              borderWidth: 1.5,
+              pointRadius: 3,
+              pointBackgroundColor: pointColors,
+              fill: true,
+              tension: 0.3,
+            }]
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            scales: {
+              x: { ticks: { color: '#64748b', font: { size: 9 }, maxTicksLimit: 12 }, grid: { color: 'rgba(255,255,255,0.04)' } },
+              y: { min: 0, max: 1, ticks: { color: '#64748b', font: { size: 10 } }, grid: { color: 'rgba(255,255,255,0.05)' } }
+            },
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                callbacks: {
+                  label: (ctx) => {
+                    const h = d.history[ctx.dataIndex];
+                    return [`VSI: ${h.vsi}`, `Status: ${h.status}`, `Spread: ${h.spread}V`];
+                  }
+                }
+              }
+            }
+          }
+        });
+      }
+    }
+
+  } catch(e) {
+    if (bodyEl) bodyEl.innerHTML = `<div class="empty-state" style="color:var(--red)">Error: ${e.message}</div>`;
+  }
+}
+
+// Expose new functions globally
+window.onEnergyCostInput = window.onEnergyCostInput;
+

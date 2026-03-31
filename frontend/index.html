@@ -405,80 +405,124 @@
         <div id="page-prediction" class="page">
             <div class="page-header">
                 <div>
-                    <h2 class="page-title">AI Predictions</h2>
-                    <p class="page-sub">All 6 ML models — live inference from trained models</p>
+                    <h2 class="page-title">AI Insights</h2>
+                    <p class="page-sub">Predictive Billing, Appliance Health & Grid Stability</p>
                 </div>
                 <div class="header-right">
                     <button class="btn-primary-sm" onclick="loadPredictionPage()">↻ Refresh All</button>
                 </div>
             </div>
 
-            <!-- ROW 1: Monthly Forecast + Bill Risk -->
-            <div class="prediction-grid" style="grid-template-columns:1fr 1fr;gap:1.2rem;margin-bottom:1.2rem;">
-
-                <!-- XGBoost Monthly Forecast -->
-                <div class="card" id="predMonthlyCard">
-                    <div class="card-header">
-                        <h3>📅 Monthly kWh Forecast</h3>
-                        <span class="cloud-badge ai-badge">✨ XGBoost</span>
-                    </div>
-                    <div id="predMonthlyBody" style="padding:1rem 0;">
-                        <div class="skeleton-item"></div>
-                    </div>
-                </div>
-
-                <!-- Random Forest Bill Risk -->
-                <div class="card" id="predBillRiskCard">
-                    <div class="card-header">
-                        <h3>💰 High-Bill Risk</h3>
-                        <span class="cloud-badge" style="background:rgba(248,113,113,0.15);color:#f87171;border-color:rgba(248,113,113,0.3);">🌲 Random Forest</span>
-                    </div>
-                    <div id="predBillRiskBody" style="padding:1rem 0;">
-                        <div class="skeleton-item"></div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ROW 2: Load Type + 24h Forecast -->
-            <div style="display:grid;grid-template-columns:1fr 2fr;gap:1.2rem;margin-bottom:1.2rem;">
-
-                <!-- KMeans Load Classification -->
-                <div class="card">
-                    <div class="card-header">
-                        <h3>🔋 Load Type</h3>
-                        <span class="cloud-badge" style="background:rgba(167,139,250,0.15);color:#a78bfa;border-color:rgba(167,139,250,0.3);">K-Means</span>
-                    </div>
-                    <div id="predLoadBody" style="padding:0.5rem 0;">
-                        <div class="skeleton-item"></div>
-                    </div>
-                    <div class="chart-wrapper" style="height:160px;margin-top:10px;">
-                        <canvas id="loadDoughnutChart"></canvas>
-                    </div>
-                </div>
-
-                <!-- PyTorch 24h Forecast -->
-                <div class="card">
-                    <div class="card-header">
-                        <h3>🧠 24-Hour Power Forecast</h3>
-                        <span class="cloud-badge" style="background:rgba(52,211,153,0.15);color:#34d399;border-color:rgba(52,211,153,0.3);">PyTorch NN</span>
-                    </div>
-                    <div id="predForecastMeta" style="font-size:11px;color:var(--text-dim);padding:2px 0 4px"></div>
-                    <div class="chart-wrapper" style="height:200px;">
-                        <canvas id="forecastChart"></canvas>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ROW 3: Isolation Forest Anomaly Summary -->
-            <div class="card">
+            <!-- ROW 1: NILM — Appliance Disaggregation -->
+            <div class="card" id="nilmCard" style="margin-top:1.2rem;">
                 <div class="card-header">
-                    <h3>⚠ Isolation Forest — Power Anomalies</h3>
-                    <span class="cloud-badge" style="background:rgba(251,191,36,0.15);color:#fbbf24;border-color:rgba(251,191,36,0.3);">sklearn</span>
+                    <h3>🔍 NILM — Appliance Energy Breakdown</h3>
+                    <span class="cloud-badge" style="background:rgba(99,102,241,0.15);color:#818cf8;border-color:rgba(99,102,241,0.3);">⚡ Power Signatures</span>
                 </div>
-                <div id="predIFBody">
+                <div id="nilmMeta" style="font-size:11px;color:var(--text-dim);padding:4px 0 8px;"></div>
+                <div style="display:grid;grid-template-columns:1fr 280px;gap:1.2rem;align-items:start;" id="nilmBody">
+                    <div id="nilmApplianceGrid" class="appliance-grid">
+                        <div class="skeleton-item"></div>
+                        <div class="skeleton-item" style="margin-top:8px;opacity:0.6"></div>
+                    </div>
+                    <div>
+                        <div style="font-size:11px;color:var(--text-dim);text-align:center;margin-bottom:6px;">Share of Daily Usage</div>
+                        <div class="chart-wrapper" style="height:200px;">
+                            <canvas id="nilmDoughnutChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ROW 2: Energy Cost Calculator -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;margin-top:1.2rem;">
+                <div class="card">
+                    <div class="card-header">
+                        <h3>💸 Energy Cost Calculator</h3>
+                        <span class="cloud-badge" style="background:rgba(52,211,153,0.15);color:#34d399;border-color:rgba(52,211,153,0.3);">TNEB + ML</span>
+                    </div>
+                    <div style="padding:0.5rem 0;">
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+                            <div class="input-group" style="margin:0;">
+                                <label>Billing Period</label>
+                                <select id="ecPeriod" onchange="onEnergyCostInput()">
+                                    <option value="monthly">Monthly</option>
+                                    <option value="bimonthly">Bi-monthly</option>
+                                </select>
+                            </div>
+                            <div class="input-group" style="margin:0;">
+                                <label>kWh (leave blank to auto-predict)</label>
+                                <input id="ecKwh" type="number" min="0" placeholder="auto" oninput="onEnergyCostInput()" />
+                            </div>
+                        </div>
+                        <div id="ecMlNote" style="font-size:11px;color:var(--text-dim);margin-bottom:10px;"></div>
+                        <div id="ecSlabBreakdown" class="ec-slab-list"></div>
+                        <div id="ecTotalRow" class="cost-display" style="display:none;">
+                            <div class="cost-main">₹<span id="ecTotal">—</span></div>
+                            <div class="cost-sub" id="ecSubLine"></div>
+                        </div>
+                        <div id="ecSavings" style="display:none;margin-top:10px;font-size:12px;color:var(--text-dim);display:flex;gap:16px;">
+                            <span>💚 Save 10%: <strong id="ecSave" class="green-text"></strong></span>
+                            <span>📈 +10%: <strong id="ecExtra" class="amber-text"></strong></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- NILM Predicted kWh reference card -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>📊 ML Predicted Usage Summary</h3>
+                        <span class="cloud-badge" style="background:rgba(99,102,241,0.15);color:#818cf8;border-color:rgba(99,102,241,0.3);">NILM + XGBoost</span>
+                    </div>
+                    <div id="ecPredRefBody" style="padding:0.5rem 0;">
+                        <div class="skeleton-item"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ROW 3: Voltage Fluctuation Predictor -->
+            <div class="card" style="margin-top:1.2rem;">
+                <div class="card-header">
+                    <h3>⚡ Voltage Fluctuation Predictor</h3>
+                    <div style="display:flex;gap:8px;align-items:center;">
+                        <span class="cloud-badge" style="background:rgba(248,113,113,0.15);color:#f87171;border-color:rgba(248,113,113,0.3);">VSI Analysis</span>
+                        <span id="vfAlertBadge" class="vsi-badge"></span>
+                    </div>
+                </div>
+                <div id="vfBody">
                     <div class="skeleton-item"></div>
                 </div>
+                <!-- VSI meter bar -->
+                <div id="vfMeterWrap" style="display:none;margin-top:14px;">
+                    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-dim);margin-bottom:4px;">
+                        <span>Voltage Stability Index (VSI)</span>
+                        <span id="vfVsiLabel">—</span>
+                    </div>
+                    <div class="vsi-track">
+                        <div id="vfVsiBar" class="vsi-bar"></div>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-dim);margin-top:2px;">
+                        <span>0 — Unstable</span><span>0.75 — Good</span><span>1.0 — Perfect</span>
+                    </div>
+                </div>
+                <!-- Flagged events table -->
+                <div id="vfEventsWrap" style="display:none;margin-top:14px;">
+                    <div style="font-size:12px;color:var(--text-dim);margin-bottom:6px;">⚠ Flagged Voltage Events</div>
+                    <div class="tbl-wrap">
+                        <table class="data-table">
+                            <thead>
+                                <tr><th>Hour</th><th>Status</th><th>Min V</th><th>Max V</th><th>Spread</th><th>VSI</th><th>Advice</th></tr>
+                            </thead>
+                            <tbody id="vfEventsBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+                <!-- Historical stability chart -->
+                <div class="chart-wrapper" style="height:160px;margin-top:14px;" id="vfChartWrap">
+                    <canvas id="vfHistoryChart"></canvas>
+                </div>
             </div>
+
         </div>
 
         <!-- ═══ PAGE 5: CHARGES ═══ -->
@@ -773,12 +817,11 @@
     <!-- DEVICE MODAL -->
     <div id="deviceModal" class="modal">
         <div class="modal-box card">
-            <h3>Register ESP32 Device</h3>
-            <p style="font-size:12px;color:var(--text-dim);margin:8px 0 20px">Enter the Device ID exactly as set in your
-                ESP32 firmware</p>
+            <h3>Join Household Meter</h3>
+            <p style="font-size:12px;color:var(--text-dim);margin:8px 0 20px">Enter the Device ID of your household's ESP32 meter. All family members who enter the same ID will see the same live data — like a shared Netflix account.</p>
             <div class="input-group"><label>Device ID</label><input id="deviceId" placeholder="e.g. ESP001" /></div>
             <div class="modal-actions">
-                <button class="btn-primary" onclick="registerDevice()" style="flex:1">Register</button>
+                <button class="btn-primary" onclick="registerDevice()" style="flex:1">Join</button>
                 <button class="btn-secondary" onclick="closeDeviceModal()">Cancel</button>
             </div>
         </div>

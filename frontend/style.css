@@ -103,7 +103,7 @@ body {
   background: var(--bg); padding: 20px;
 }
 .auth-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 60px; max-width: 900px; width: 100%; align-items: center; }
-.auth-left { }
+.auth-left { /* empty */ }
 .auth-logo { font-size: 52px; margin-bottom: 16px; filter: drop-shadow(0 0 24px var(--amber)); }
 .auth-left h1 { font-family: 'Rajdhani', sans-serif; font-size: 2.4rem; color: var(--amber); letter-spacing: 2px; margin-bottom: 12px; }
 .auth-left p { color: var(--text-dim); font-size: 0.95rem; line-height: 1.7; margin-bottom: 28px; }
@@ -158,6 +158,7 @@ main { position: relative; z-index: 1; padding: 0 20px 60px; max-width: 1400px; 
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--r);
   padding: 20px; position: relative; overflow: hidden;
   box-shadow: 0 4px 32px rgba(0,0,0,0.25);
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
 }
 .card::before { content: ''; position: absolute; top: 0; left: 10%; right: 10%; height: 1px; background: linear-gradient(90deg, transparent, rgba(251,191,36,0.15), transparent); }
 .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
@@ -192,9 +193,10 @@ select option { background: #0d1626; }
 .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 18px; }
 .kpi-card {
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--r);
-  padding: 18px; position: relative; overflow: hidden; transition: transform 0.2s;
+  padding: 18px; position: relative; overflow: hidden; transition: transform 0.2s, box-shadow 0.2s;
+  backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
 }
-.kpi-card:hover { transform: translateY(-2px); }
+.kpi-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
 .kpi-card::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 2px; }
 .kpi-card.amber { border-color: rgba(251,191,36,0.18); }
 .kpi-card.amber::after { background: linear-gradient(90deg, transparent, var(--amber), transparent); }
@@ -385,7 +387,7 @@ select option { background: #0d1626; }
 .lbr.total-row { color: var(--text); font-weight: 700; border-bottom: none; padding-top: 10px; }
 .lbr span:last-child { font-family: 'Space Mono', monospace; font-size: 0.83rem; }
 
-.slab-vis { }
+.slab-vis { /* empty */ }
 .sv-track { display: flex; border-radius: 6px; overflow: hidden; height: 24px; }
 .sv-seg   { display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; }
 .sv-s1 { background: var(--green-d); color: var(--green); }
@@ -647,7 +649,7 @@ select option { background: #0d1626; }
 }
 
 .pred-value {
-    font-family: `"Rajdhani`", sans-serif;
+    font-family: 'Rajdhani', sans-serif;
     font-size: 4.5rem;
     font-weight: 700;
     line-height: 1;
@@ -699,3 +701,38 @@ select option { background: #0d1626; }
 .ml-metrics-list li {
     margin-bottom: 0.5rem;
 }
+
+/* ── ROW 4: NILM ── */
+.appliance-grid { display: grid; grid-template-columns: 1fr; gap: 8px; max-height: 250px; overflow-y: auto; padding-right: 6px; }
+.appliance-card { background: rgba(0,0,0,0.2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; }
+.ac-left { display: flex; align-items: center; gap: 12px; }
+.ac-icon { font-size: 1.4rem; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.05); border-radius: 50%; border: 1px solid rgba(255,255,255,0.1); }
+.ac-name { font-weight: 700; font-size: 0.9rem; color: var(--text); }
+.ac-watts { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+.ac-right { display: flex; flex-direction: column; align-items: flex-end; width: 100px; }
+.ac-kwh { font-family: 'Space Mono', monospace; font-size: 1rem; font-weight: 700; color: var(--text); }
+.ac-monthly { font-size: 10px; color: var(--text-dim); margin: 2px 0 6px; }
+.ac-pct-bar { width: 100%; height: 4px; background: rgba(255,255,255,0.05); border-radius: 2px; overflow: hidden; position: relative; }
+.ac-pct-lbl { font-size: 9px; font-weight: 700; color: var(--text-dim); margin-top: 4px; align-self: flex-start; }
+
+/* ── ROW 5: ENERGY COST ── */
+.ec-slab-list { display: flex; flex-direction: column; gap: 4px; background: rgba(0,0,0,0.2); border-radius: 8px; padding: 10px; }
+.ec-slab-row { display: grid; grid-template-columns: 70px 1fr 60px 70px; gap: 10px; font-size: 11px; padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.03); color: var(--text-dim); }
+.ec-slab-row:last-child { border-bottom: none; }
+.ec-slab-summary { font-weight: 700; color: var(--text); border-top: 1px solid rgba(255,255,255,0.1); padding-top: 8px; margin-top: 4px; }
+.ec-slab-name { font-weight: 700; color: var(--amber); }
+.ec-slab-rate { font-family: 'Space Mono', monospace; }
+.ec-slab-charge { text-align: right; font-family: 'Space Mono', monospace; color: var(--text); }
+.cost-display { background: rgba(52,211,153,0.1); border: 1px solid rgba(52,211,153,0.3); border-radius: 8px; padding: 14px; text-align: center; margin-top: 14px; }
+.cost-main { font-size: 2rem; font-weight: 900; color: var(--green); font-family: 'Rajdhani', sans-serif; }
+.cost-sub { font-size: 11px; color: var(--green); opacity: 0.8; margin-top: 2px; }
+.pred-ref-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 0.82rem; color: var(--text-dim); }
+.pred-ref-row strong { font-family: 'Space Mono', monospace; color: var(--text); }
+
+/* ── ROW 6: VOLTAGE ── */
+.vsi-badge { background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; }
+.vf-stat { display: flex; flex-direction: column; align-items: center; background: rgba(0,0,0,0.2); border: 1px solid var(--border); padding: 12px; border-radius: 8px; }
+.vf-val { font-family: 'Space Mono', monospace; font-size: 1.3rem; font-weight: 700; }
+.vf-lbl { font-size: 9px; text-transform: uppercase; color: var(--text-dim); margin-top: 4px; letter-spacing: 0.5px; }
+.vsi-track { height: 8px; background: rgba(255,255,255,0.05); border-radius: 4px; overflow: hidden; position: relative; }
+
