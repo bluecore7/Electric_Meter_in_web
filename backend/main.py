@@ -740,9 +740,16 @@ def get_energy_cost(uid=Depends(verify_user), period: str = Query(default="month
     ]
     slab_breakdown = [{"slab": s["range"], "rate": f"₹{s['rate']}/unit" if s["rate"]>0 else "Free", "units": round(s["units"],3), "charge": round(s["units"]*s["rate"],2)} for s in slabs if s["units"]>0]
 
+    # Compute savings / extra cost sensitivity analysis
+    savings_if_less = round(calculate_bill(predicted_kwh * 0.9) + get_fixed_charge(predicted_kwh * 0.9 / multiplier) * multiplier + round(calculate_bill(predicted_kwh * 0.9) * 0.15, 2), 2)
+    extra_if_more   = round(calculate_bill(predicted_kwh * 1.1) + get_fixed_charge(predicted_kwh * 1.1 / multiplier) * multiplier + round(calculate_bill(predicted_kwh * 1.1) * 0.15, 2), 2)
+
     return {
         "status": "ok",
         "period": period,
+        "months": multiplier,
+        "kwh_input": round(predicted_kwh, 2),
+        "kwh_source": source,
         "kwh_so_far": round(cycle_kwh, 2),
         "days_elapsed": round(_days_elapsed, 1),
         "days_remaining": round(max(0, days_in_cycle - _days_elapsed), 1),
@@ -752,6 +759,8 @@ def get_energy_cost(uid=Depends(verify_user), period: str = Query(default="month
         "fixed_charge": round(fixed, 2),
         "electricity_duty": duty,
         "total_bill": total,
+        "savings_if_10pct_less": round(total - savings_if_less, 2),
+        "extra_if_10pct_more":   round(extra_if_more - total, 2),
         "slab_label": get_slab_label(predicted_kwh / multiplier),
         "slab_breakdown": slab_breakdown
     }
@@ -813,10 +822,15 @@ def get_nilm(uid=Depends(verify_user), days: int = Query(default=7, ge=1, le=30)
         })
         
     out = sorted(out, key=lambda x: x["percent_share"], reverse=True)
+    hours_analyzed = len(active)
+    avg_watts = round(sum(h.get("avg_power", 0) for h in active) / max(1, hours_analyzed), 1)
     return {
         "status": "ok",
         "days_analyzed": days,
+        "hours_analyzed": hours_analyzed,
         "total_measured_kwh": round(total_kwh, 2),
+        "avg_measured_watts": avg_watts,
+        "avg_daily_kwh": round(total_kwh / max(1, days), 3),
         "appliances": out,
         "note": "AI Pattern Matcher: Analyzed via sudden wattage spikes (Delta Power)."
     }
@@ -829,56 +843,108 @@ from scipy.stats import norm
 @app.get("/ml/voltage-fluctuation", tags=["ML"])
 def get_voltage_fluctuation(uid=Depends(verify_user), days: int = Query(default=14, ge=1, le=30)):
     """
-    Model 3: Voltage Fluctuation Probability.
-    Instantaneously trains a Gaussian probability curve over the user's localized neighbourhood data.
+    Model 3: Voltage Stability Index (VSI) + Fluctuation Prediction.
+    Instantaneously trains on the user's localized grid data.
+    VSI = 1 - (spread / safe_band_width), clamped to [0, 1].
     """
     hourly = stats_hourly(uid=uid, days=days)
     active = [h for h in hourly if h.get("avg_voltage", 0) > 50]
-    if len(active) < 24:
-        return {"error": "Need more data to predict voltage fluctuation probabilities.", "status": 400}
-        
-    # Group by hour of day
-    hour_volts = {i: [] for i in range(24)}
+    if len(active) < 12:
+        return {"error": "Need at least 12 hours of data to analyse voltage stability.", "status": 400}
+
+    SAFE_LOW, SAFE_HIGH = 210.0, 250.0
+    SAFE_BAND = SAFE_HIGH - SAFE_LOW  # 40V
+
+    history = []
+    flagged_events = []
+
     for h in active:
-        hour_volts[h["hour_num"]].append(h["min_voltage"])
-        
-    probabilities = []
-    high_risk_hours = []
-    
-    for h in range(24):
-        vals = hour_volts[h]
-        if len(vals) < 3:
-            p_drop = 0.0
+        min_v = h.get("min_voltage", 230)
+        max_v = h.get("max_voltage", 230)
+        avg_v = h.get("avg_voltage", 230)
+        spread = max_v - min_v
+
+        vsi = round(max(0.0, min(1.0, 1.0 - spread / SAFE_BAND)), 3)
+
+        if min_v < SAFE_LOW or max_v > SAFE_HIGH or spread > 20:
+            status = "SEVERE_FLUCTUATION"
+        elif spread > 10 or min_v < 215:
+            status = "MILD_FLUCTUATION"
         else:
-            mean = np.mean(vals)
-            std = max(np.std(vals), 0.1) # prevent div zero
-            # Probability of dropping below 210V
-            p_drop = norm.cdf(210, loc=mean, scale=std)
-            
-        prob_pct = round(float(p_drop) * 100, 1)
-        probabilities.append({
-            "hour_num": h,
-            "hour_label": f"{h%12 or 12}{'am' if h<12 else 'pm'}",
-            "drop_probability_pct": prob_pct,
-            "avg_historical_min": round(np.mean(vals) if vals else 230, 1)
-        })
-        
-        if prob_pct > 20.0:
-            high_risk_hours.append(probabilities[-1])
-            
-    # Sort risk alerts
-    high_risk_hours = sorted(high_risk_hours, key=lambda x: x["drop_probability_pct"], reverse=True)
-    
-    overall_risk = np.mean([p["drop_probability_pct"] for p in probabilities])
-    alert_level = "GREEN"
-    if overall_risk > 15: alert_level = "RED"
-    elif overall_risk > 5: alert_level = "YELLOW"
-    
+            status = "STABLE"
+
+        advice = []
+        if min_v < 200:
+            advice.append("Disconnect sensitive electronics")
+        elif min_v < 215:
+            advice.append("Use voltage stabiliser")
+        if max_v > 255:
+            advice.append("Risk of appliance burnout")
+        if spread > 25:
+            advice.append("Log TNEB complaint")
+
+        entry = {
+            "hour": h["hour"],
+            "hour_label": f"{h['hour_num'] % 12 or 12}{'am' if h['hour_num'] < 12 else 'pm'}",
+            "min_v": round(min_v, 1),
+            "max_v": round(max_v, 1),
+            "avg_v": round(avg_v, 1),
+            "spread": round(spread, 1),
+            "vsi": vsi,
+            "status": status,
+            "advice": advice,
+        }
+        history.append(entry)
+        if status != "STABLE":
+            flagged_events.append(entry)
+
+    # Summary stats
+    total_h = len(history)
+    stable   = sum(1 for h in history if h["status"] == "STABLE")
+    mild     = sum(1 for h in history if h["status"] == "MILD_FLUCTUATION")
+    severe   = sum(1 for h in history if h["status"] == "SEVERE_FLUCTUATION")
+    stable_pct = round(stable / max(1, total_h) * 100, 1)
+
+    overall_vsi = round(np.mean([h["vsi"] for h in history]), 3) if history else 0.0
+
+    # Trend: compare first half vs second half VSI
+    mid = len(history) // 2
+    vsi_first = np.mean([h["vsi"] for h in history[:mid]]) if mid > 0 else 0.5
+    vsi_second = np.mean([h["vsi"] for h in history[mid:]]) if history[mid:] else 0.5
+    if vsi_second > vsi_first + 0.03:
+        stability_trend = "improving"
+    elif vsi_second < vsi_first - 0.03:
+        stability_trend = "worsening"
+    else:
+        stability_trend = "stable"
+
+    # Alert level
+    if overall_vsi >= 0.80:
+        alert_level, alert_emoji, alert_message = "GREEN", "✅", "Grid is stable. Your appliances are safe."
+    elif overall_vsi >= 0.60:
+        alert_level, alert_emoji, alert_message = "YELLOW", "⚠️", "Mild fluctuations detected. Consider a stabiliser for sensitive devices."
+    else:
+        alert_level, alert_emoji, alert_message = "RED", "🚨", "Severe voltage instability. Disconnect ACs, TVs, and computers during peak hours."
+
+    # Sort flagged events by severity
+    flagged_events = sorted(flagged_events, key=lambda x: x["vsi"])
+
     return {
         "status": "ok",
+        "days_analyzed": days,
+        "hours_analyzed": total_h,
+        "overall_vsi": overall_vsi,
         "alert_level": alert_level,
-        "overall_drop_risk": round(overall_risk, 1),
-        "high_risk_hours": high_risk_hours[:3],  # top 3 worst hours
-        "hourly_probability": probabilities,
-        "note": "Custom trained instantaneously on your local grid history."
+        "alert_emoji": alert_emoji,
+        "alert_message": alert_message,
+        "stability_trend": stability_trend,
+        "summary": {
+            "stable_hours": stable,
+            "mild_hours": mild,
+            "severe_hours": severe,
+            "stable_pct": stable_pct,
+        },
+        "flagged_events": flagged_events[:10],
+        "history": history[-48:],  # last 48 hours for the chart
+        "note": "Instantaneous VSI — trained on your local grid history."
     }
